@@ -1,5 +1,7 @@
 import asyncio
 import logging
+from collections import deque
+from datetime import datetime
 
 from ..audio.ffmpeg_ingest import FFmpegIngest
 from ..config import Settings
@@ -10,6 +12,8 @@ from ..models.schemas import RoomStatusEvent, TranscriptEvent
 from ..ws.connection_manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
+
+MAX_TRANSCRIPT_EVENTS = 5000  # cap de memoria para una sala corriendo varias horas
 
 
 class Room:
@@ -26,6 +30,7 @@ class Room:
 
         self.queue: asyncio.Queue = asyncio.Queue(maxsize=settings.max_queue_size)
         self.connections = ConnectionManager()
+        self.transcript: deque[TranscriptEvent] = deque(maxlen=MAX_TRANSCRIPT_EVENTS)
         self.ingest = FFmpegIngest(
             protocol=settings.ingest_protocol,
             host=settings.ingest_host,
@@ -66,7 +71,19 @@ class Room:
         await self.ingest.stop()
 
     async def _emit_transcript(self, event: TranscriptEvent) -> None:
+        self.transcript.append(event)
         await self.connections.broadcast(event.model_dump())
+
+    def transcript_as_text(self) -> str:
+        """Transcript plano y legible, para descarga/accesibilidad post-charla
+        (ver GET /rooms/{id}/transcript.txt)."""
+        lines: list[str] = []
+        for event in self.transcript:
+            ts_str = datetime.fromtimestamp(event.ts).strftime("%Y-%m-%d %H:%M:%S")
+            lines.append(f"[{ts_str}] ({event.lang}) {event.original_text}")
+            if event.translated_text.strip() and event.translated_text.strip() != event.original_text.strip():
+                lines.append(f"    -> {event.translated_text}")
+        return "\n".join(lines) + ("\n" if lines else "")
 
     async def _supervised_ingest_loop(self) -> None:
         backoff = self.settings.ffmpeg_restart_backoff_seconds

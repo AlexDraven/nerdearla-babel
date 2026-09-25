@@ -2,12 +2,23 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>nerdearla-babel — overlay de subtítulos</title>
+  <title>nerdearla-babel — subtítulos</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="status" class="status"></div>
-  <div id="caption" class="caption"></div>
+
+  <div id="controls" class="controls" hidden>
+    <button id="font-dec" type="button" aria-label="Achicar el texto">A−</button>
+    <button id="font-inc" type="button" aria-label="Agrandar el texto">A+</button>
+    <button id="contrast-toggle" type="button" aria-label="Alternar alto contraste">Alto contraste</button>
+  </div>
+
+  <div id="history" class="history" role="log" aria-live="polite" hidden></div>
+  <button id="jump-latest" class="jump-latest" type="button" hidden>▼ nuevos subtítulos</button>
+
+  <div id="caption" class="caption" aria-live="polite"></div>
+
   <script src="app.js"></script>
 </body>
 </html>

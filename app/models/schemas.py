@@ -10,6 +10,7 @@ class TranscriptEvent(BaseModel):
     original_text: str
     translated_text: str
     latency_s: float
+    ts: float
 
 
 class RoomStatusEvent(BaseModel):

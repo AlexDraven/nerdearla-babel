@@ -39,10 +39,12 @@ Este flujo corre **una vez por sala**, y `app/rooms/bootstrap.py:build_rooms()` 
 | `app/inference/prompts.py` | Construye el prompt único (detección de idioma + transcripción/traducción a `target_lang`) con el glosario inyectado. |
 | `app/inference/ollama_client.py` | Cliente OpenAI-compatible contra Ollama — **nunca** usar `/api/chat` para audio. |
 | `app/inference/pipeline.py` | Consumer async: toma chunks de la cola, llama a Ollama, emite `TranscriptEvent` (con `original_text` y `translated_text`). |
-| `app/rooms/room.py` | Unidad de escalado: une ingesta + cola + pipeline + viewers de una sala. |
+| `app/rooms/room.py` | Unidad de escalado: une ingesta + cola + pipeline + viewers de una sala. También acumula `transcript` (deque, cap 5000 eventos) y expone `transcript_as_text()` para el export plano. |
 | `app/rooms/bootstrap.py` | Arma la lista de `Room` a partir de `BABEL_ROOM_IDS`, resolviendo el glosario y el audio de demo de cada una por convención de archivo. |
 | `app/ws/connection_manager.py` | Broadcast de eventos a los viewers WS conectados. |
-| `app/main.py` | FastAPI: lifecycle de **todas** las `Room` (arrancan concurrentes), endpoints de control y WS de salida. |
+| `app/main.py` | FastAPI: lifecycle de **todas** las `Room` (arrancan concurrentes), endpoints de control (`/rooms`, `/rooms/{id}/status`, `/transcript`, `/transcript.txt`, `/glossary`) y WS de salida. CORS abierto para que el overlay/dashboard (archivos estáticos, otro origen) puedan consumirlo. |
+| `frontend/dashboard/` | Control room: pollea `GET /rooms` + abre un WS por sala para mostrar todas las sesiones activas en una sola pantalla (estado, cola, latencia, último subtítulo). |
+| `frontend/overlay/` | Dos modos sobre el mismo WS: `broadcast` (default, cartel efímero para OBS) y `?mode=reading` (scrollback + control de fuente/contraste + `aria-live`, para seguir la charla desde el propio dispositivo). |
 
 ## Decisión: un solo prompt, con salida dual (no dos pipelines)
 

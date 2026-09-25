@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>nerdearla-babel — control room</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>nerdearla-babel — control room</h1>
+    <p class="subtitle">
+      Prueba en vivo de que hay múltiples salas procesando en simultáneo —
+      cada card es una sesión independiente (su propio FFmpeg, su propia cola,
+      su propio worker de inferencia).
+    </p>
+  </header>
+
+  <main id="rooms" class="rooms" aria-live="polite"></main>
+
+  <p id="empty-state" class="empty-state" hidden>
+    Todavía no hay salas activas. Verificá que el backend esté corriendo y
+    que <code>BABEL_ROOM_IDS</code> tenga al menos una sala configurada.
+  </p>
+
+  <script src="app.js"></script>
+</body>
+</html>

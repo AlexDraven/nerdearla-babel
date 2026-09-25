@@ -6,6 +6,15 @@ Construido para la [Vibeathon de Nerdearla](https://nerdearla.com) (24-25 de sep
 
 📹 **Video demo**: _[completar con el link de YouTube antes de entregar]_
 
+## Qué nos diferencia
+
+Más allá del MVP (transcripción + traducción + multi-sala), 4 cosas que probablemente no todos los proyectos tengan:
+
+- 🗂️ **Transcript persistente y exportable**, no solo subtítulos que desaparecen — cada sala guarda su historial y lo expone en `GET /rooms/{id}/transcript.txt` (para publicar la charla después, o para alguien que no pudo seguirla en vivo).
+- 🖥️ **[Control room](frontend/dashboard/index.html)**: una sola pantalla que muestra todas las salas activas en simultáneo, con estado, cola y latencia real de cada una — prueba visual de "N sesiones en paralelo" sin tener que abrir pestaña por pestaña.
+- ♿ **Modo lectura accesible** en el overlay (`?mode=reading`): historial con scroll (no efímero), control de tamaño de letra y alto contraste, y `aria-live` para lectores de pantalla — pensado para alguien siguiendo la charla desde su propia laptop, no solo para un cartel de OBS.
+- 🧠 **Glosario técnico anti-alucinaciones** inyectado en cada chunk (nombres de librerías, spanglish, speakers) para no perder precisión en jerga técnica — verificable en `GET /rooms/{id}/glossary`.
+
 ## Qué hace
 
 - Recibe audio en vivo (RTMP/SRT desde OBS o una consola de sonido) **o** un archivo de audio local (para probar sin infraestructura).
@@ -30,21 +39,27 @@ docker compose up -d --build
 
 El servicio `ollama-init` descarga `gemma4:e2b` automáticamente la primera vez (puede tardar unos minutos). Cuando el backend esté arriba (`docker compose logs -f backend`), ya hay **2 salas corriendo en simultáneo** (`main` y `room2`), cada una en loop sobre un archivo de audio de `tests/fixtures/` (modo `file`, sin necesidad de OBS ni ningún push manual).
 
-Abrí el overlay de subtítulos para cada sala — es un archivo estático, se abre directo desde el filesystem, no lo sirve el backend — en dos pestañas del navegador:
+La forma más rápida de ver que las 2 salas están vivas y en paralelo es el **control room**:
 
 ```bash
-open "frontend/overlay/index.html?room=main&ws_host=localhost:8000"      # macOS
-open "frontend/overlay/index.html?room=room2&ws_host=localhost:8000"
-# Linux: xdg-open "frontend/overlay/index.html?room=main&ws_host=localhost:8000"
-# o directamente arrastrá frontend/overlay/index.html al navegador y agregale
-# ?room=main&ws_host=localhost:8000 / ?room=room2&ws_host=localhost:8000 a la URL
+open "frontend/dashboard/index.html?api_host=localhost:8000"   # macOS
+# Linux: xdg-open "frontend/dashboard/index.html?api_host=localhost:8000"
 ```
 
-Para confirmar que ambas salas están efectivamente en vivo y procesando en paralelo:
+Ahí se ve una card por sala, actualizándose en vivo (estado, cola, latencia y último subtítulo). Desde cada card se puede saltar directo a su overlay o a su transcript.
+
+También se puede abrir el overlay de cada sala directamente — es un archivo estático, se abre desde el filesystem, no lo sirve el backend:
 
 ```bash
-curl http://localhost:8000/rooms/main/status
-curl http://localhost:8000/rooms/room2/status
+open "frontend/overlay/index.html?room=main&ws_host=localhost:8000"                 # modo OBS (cartel efímero)
+open "frontend/overlay/index.html?room=main&ws_host=localhost:8000&mode=reading"    # modo lectura accesible (historial + controles)
+```
+
+Y por línea de comandos:
+
+```bash
+curl http://localhost:8000/rooms                      # lista todas las salas activas
+curl http://localhost:8000/rooms/main/transcript.txt   # transcript acumulado de la sala "main"
 ```
 
 ## Probar con tus propios audios
@@ -97,7 +112,8 @@ Requiere `ffmpeg` instalado localmente (`brew install ffmpeg` / `apt install ffm
 
 ```
 app/                backend FastAPI (audio, glosario, inferencia, salas, websockets)
-frontend/overlay/    overlay de subtítulos (browser source de OBS o cualquier navegador)
+frontend/overlay/    overlay de subtítulos — modo OBS (?mode=broadcast, default) o accesible (?mode=reading)
+frontend/dashboard/  control room: todas las salas activas, en vivo, en una sola pantalla
 glossaries/          glosarios técnicos por charla (YAML) — glossaries/<room_id>.yaml
 tests/fixtures/      audios de demo (uno por sala, por convención <room_id>.wav)
 scripts/             utilidades (pull de modelo, push de stream de prueba)

@@ -2,6 +2,8 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
 from .config import get_settings
 from .glossary.loader import load_glossary_from_yaml
@@ -35,10 +37,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="nerdearla-babel", lifespan=lifespan)
 
+# El overlay y el dashboard son páginas estáticas que se abren directo desde
+# el filesystem (file://) o desde otro puerto — necesitan CORS habilitado
+# para poder hacer fetch()/WS contra este backend.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+@app.get("/rooms")
+async def list_rooms():
+    """Control room: lista todas las salas activas con su estado — prueba
+    que hay >=2 sesiones corriendo en simultáneo (ver frontend/dashboard/)."""
+    return [
+        {"room_id": room.room_id, "status": room.status, "queue_size": room.queue.qsize()}
+        for room in room_manager.list()
+    ]
 
 
 @app.get("/rooms/{room_id}/status")
@@ -51,6 +73,37 @@ async def room_status(room_id: str):
         "status": room.status,
         "queue_size": room.queue.qsize(),
     }
+
+
+@app.get("/rooms/{room_id}/transcript")
+async def get_transcript(room_id: str):
+    room = room_manager.get(room_id)
+    if room is None:
+        raise HTTPException(404, "sala no encontrada")
+    return {"room_id": room.room_id, "events": [event.model_dump() for event in room.transcript]}
+
+
+@app.get("/rooms/{room_id}/transcript.txt", response_class=PlainTextResponse)
+async def get_transcript_txt(room_id: str):
+    """Transcript plano y descargable: sirve tanto para accesibilidad
+    (alguien que no pudo seguir la charla en vivo) como para publicar el
+    contenido de la charla después."""
+    room = room_manager.get(room_id)
+    if room is None:
+        raise HTTPException(404, "sala no encontrada")
+    return room.transcript_as_text()
+
+
+@app.get("/rooms/{room_id}/glossary")
+async def get_glossary(room_id: str):
+    """Solo lectura: expone el glosario técnico que está usando la sala, para
+    poder verificar que el mecanismo anti-alucinaciones está realmente activo."""
+    room = room_manager.get(room_id)
+    if room is None:
+        raise HTTPException(404, "sala no encontrada")
+    if room.glossary is None:
+        return {"room_id": room.room_id, "glossary": None}
+    return {"room_id": room.room_id, "glossary": room.glossary.model_dump()}
 
 
 @app.post("/rooms/{room_id}/glossary")

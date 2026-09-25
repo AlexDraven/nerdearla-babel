@@ -59,5 +59,6 @@ class InferencePipeline:
                 original_text=result.original_text,
                 translated_text=result.translated_text,
                 latency_s=time.monotonic() - t0,
+                ts=time.time(),
             )
         )

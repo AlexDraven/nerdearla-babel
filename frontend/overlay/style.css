@@ -1,11 +1,45 @@
+:root {
+  --reading-font-size: 1.3rem;
+}
+
+/* El atributo `hidden` debe ganarle siempre a las reglas de abajo (ej. la
+   `.controls { display: flex }` del modo reading) — si no, un elemento
+   marcado hidden por JS queda visible en el modo que no corresponde. */
+[hidden] {
+  display: none !important;
+}
+
 html, body {
   margin: 0;
   padding: 0;
   background: transparent; /* fondo transparente para usarlo como browser source en OBS */
   height: 100%;
-  overflow: hidden;
   font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
+
+/* Modo broadcast (default, para OBS): sin scroll, cartel flotante efímero */
+body[data-mode="broadcast"] {
+  overflow: hidden;
+}
+
+/* Modo reading (accesibilidad): página normal con scrollback e historial */
+body[data-mode="reading"] {
+  background: #0b0f14;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+body[data-mode="reading"] .caption {
+  display: none;
+}
+
+body[data-mode="reading"][data-contrast="high"] {
+  background: #000;
+}
+
+/* --- Caption efímero (modo broadcast) --- */
 
 .caption {
   position: fixed;
@@ -41,6 +75,8 @@ html, body {
   color: #d1d5db;
 }
 
+/* --- Status pill (ambos modos) --- */
+
 .status {
   position: fixed;
   top: 12px;
@@ -51,6 +87,7 @@ html, body {
   font-weight: 600;
   color: #fff;
   background: #6b7280; /* gris: idle/connecting */
+  z-index: 10;
 }
 
 .status[data-state="connected"] {
@@ -60,4 +97,94 @@ html, body {
 .status[data-state="reconnecting"],
 .status[data-state="disconnected"] {
   background: #dc2626; /* rojo */
+}
+
+/* --- Controles de accesibilidad (modo reading) --- */
+
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 16px 12px 90px; /* deja lugar al status pill de la izquierda */
+  background: #131a22;
+  border-bottom: 1px solid #1f2937;
+}
+
+.controls button {
+  background: #1f2937;
+  color: #e5e7eb;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.controls button:hover {
+  background: #374151;
+}
+
+/* --- Historial / scrollback (modo reading) --- */
+
+.history {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px 40px;
+  color: #e5e7eb;
+}
+
+.history-entry {
+  margin-bottom: 16px;
+  font-size: var(--reading-font-size);
+  line-height: 1.5;
+}
+
+.history-entry time {
+  display: block;
+  font-size: 0.7em;
+  color: #6b7280;
+  margin-bottom: 2px;
+}
+
+.history-entry .original {
+  font-weight: 600;
+}
+
+.history-entry .translation {
+  margin-top: 2px;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+body[data-contrast="high"] .history-entry .original {
+  color: #ffffff;
+}
+
+body[data-contrast="high"] .history-entry .translation {
+  color: #fde047;
+}
+
+body[data-contrast="high"] .history-entry time {
+  color: #d1d5db;
+}
+
+.jump-latest {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  z-index: 10;
+}
+
+.jump-latest:hover {
+  background: #1d4ed8;
 }
