@@ -192,6 +192,19 @@ button[data-recording="true"]:hover:not(:disabled) {
   margin-bottom: 2px;
 }
 
+.delay-badge {
+  font-weight: 600;
+  color: #16a34a; /* rápido */
+}
+
+.delay-badge[data-speed="medium"] {
+  color: #eab308;
+}
+
+.delay-badge[data-speed="slow"] {
+  color: #dc2626;
+}
+
 .history-entry .original {
   font-weight: 600;
 }

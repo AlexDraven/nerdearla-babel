@@ -4,6 +4,7 @@ con `scripts/push_test_stream.sh` contra un stack docker-compose levantado).
 """
 
 import asyncio
+import time
 from typing import AsyncIterator
 
 from app.config import Settings
@@ -38,7 +39,8 @@ async def test_pipeline_emits_transcript_event_for_nonempty_text():
         target_lang="es",
     )
     queue: asyncio.Queue = asyncio.Queue()
-    await queue.put((b"\x00\x00" * 8000, 1))
+    captured_at = time.time() - 0.05  # simula que el chunk se terminó de capturar hace 50ms
+    await queue.put((b"\x00\x00" * 8000, 1, captured_at))
 
     task = asyncio.create_task(pipeline.run(queue, glossary=None))
     await queue.join()
@@ -49,6 +51,7 @@ async def test_pipeline_emits_transcript_event_for_nonempty_text():
     assert events[0].lang == "en"
     assert events[0].original_text == "hello world"
     assert events[0].translated_text == "hola mundo"
+    assert events[0].audio_to_text_ms >= 50
 
 
 async def test_pipeline_skips_empty_text():
@@ -65,7 +68,7 @@ async def test_pipeline_skips_empty_text():
         on_result=on_result,
     )
     queue: asyncio.Queue = asyncio.Queue()
-    await queue.put((b"\x00\x00" * 8000, 1))
+    await queue.put((b"\x00\x00" * 8000, 1, time.time()))
 
     task = asyncio.create_task(pipeline.run(queue, glossary=None))
     await queue.join()
@@ -98,8 +101,8 @@ async def test_pipeline_survives_client_errors_and_keeps_consuming():
         on_result=on_result,
     )
     queue: asyncio.Queue = asyncio.Queue()
-    await queue.put((b"\x00\x00" * 8000, 1))
-    await queue.put((b"\x00\x00" * 8000, 2))
+    await queue.put((b"\x00\x00" * 8000, 1, time.time()))
+    await queue.put((b"\x00\x00" * 8000, 2, time.time()))
 
     task = asyncio.create_task(pipeline.run(queue, glossary=None))
     await queue.join()
@@ -157,8 +160,8 @@ async def test_two_rooms_process_concurrently_without_blocking_each_other():
 
     queue_a: asyncio.Queue = asyncio.Queue()
     queue_b: asyncio.Queue = asyncio.Queue()
-    await queue_a.put((b"\x00\x00" * 8000, 1))
-    await queue_b.put((b"\x00\x00" * 8000, 1))
+    await queue_a.put((b"\x00\x00" * 8000, 1, time.time()))
+    await queue_b.put((b"\x00\x00" * 8000, 1, time.time()))
 
     task_a = asyncio.create_task(pipeline_a.run(queue_a, glossary=None))
     task_b = asyncio.create_task(pipeline_b.run(queue_b, glossary=None))

@@ -38,6 +38,16 @@
     const time = document.createElement("time");
     const date = payload.ts ? new Date(payload.ts * 1000) : new Date();
     time.textContent = date.toLocaleTimeString();
+    if (typeof payload.audio_to_text_ms === "number") {
+      const ms = payload.audio_to_text_ms;
+      const delay = document.createElement("span");
+      delay.className = "delay-badge";
+      delay.textContent = `${ms} ms`;
+      delay.dataset.speed = ms < 5000 ? "fast" : ms < 15000 ? "medium" : "slow";
+      delay.title = "Tiempo desde que terminaste de decir esto hasta que apareció el texto";
+      time.appendChild(document.createTextNode(" · "));
+      time.appendChild(delay);
+    }
     entry.appendChild(time);
 
     const original = document.createElement("div");

@@ -33,9 +33,9 @@ class InferencePipeline:
         """Consumer: nunca bloquea al productor. Mientras este await está
         pendiente en Ollama, el productor sigue leyendo de ffmpeg."""
         while True:
-            pcm_chunk, seq = await queue.get()
+            pcm_chunk, seq, captured_at = await queue.get()
             try:
-                await self._process_chunk(pcm_chunk, seq, glossary)
+                await self._process_chunk(pcm_chunk, seq, captured_at, glossary)
             except asyncio.TimeoutError:
                 logger.error("chunk #%s: timeout (%ss) esperando a Ollama", seq, self._timeout)
             except Exception:
@@ -43,7 +43,9 @@ class InferencePipeline:
             finally:
                 queue.task_done()
 
-    async def _process_chunk(self, pcm_chunk: bytes, seq: int, glossary: Glossary | None) -> None:
+    async def _process_chunk(
+        self, pcm_chunk: bytes, seq: int, captured_at: float, glossary: Glossary | None
+    ) -> None:
         t0 = time.monotonic()
         audio_b64 = pcm_to_wav_base64(pcm_chunk, sample_rate=self._sample_rate)
         messages = build_messages(glossary, self._glossary_threshold, audio_b64, target_lang=self._target_lang)
@@ -52,6 +54,7 @@ class InferencePipeline:
         )
         if not result.original_text.strip() and not result.translated_text.strip():
             return
+        now = time.time()
         await self._on_result(
             TranscriptEvent(
                 seq=seq,
@@ -59,6 +62,10 @@ class InferencePipeline:
                 original_text=result.original_text,
                 translated_text=result.translated_text,
                 latency_s=time.monotonic() - t0,
-                ts=time.time(),
+                # incluye el tiempo en cola (si hubo backpressure) + inferencia
+                # — la demora real "de punta a punta" desde que terminaste de
+                # hablar hasta que el texto está listo.
+                audio_to_text_ms=max(0, round((now - captured_at) * 1000)),
+                ts=now,
             )
         )

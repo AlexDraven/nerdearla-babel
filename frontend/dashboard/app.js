@@ -38,7 +38,7 @@
       </div>
       <div class="room-card__metrics">
         <span>Cola: <b class="metric-queue">0</b></span>
-        <span>Latencia prom.: <b class="metric-latency">–</b></span>
+        <span>Demora audio→texto: <b class="metric-latency">–</b></span>
       </div>
       <div class="room-card__caption">
         <div class="placeholder">Esperando el primer fragmento transcripto...</div>
@@ -78,11 +78,12 @@
     state.els.statusDot.textContent = status;
   }
 
-  function pushLatency(state, latencySeconds) {
-    state.latencies.push(latencySeconds);
+  function pushDelay(state, audioToTextMs) {
+    state.latencies.push(audioToTextMs);
     if (state.latencies.length > maxLatencySamples) state.latencies.shift();
-    const avgMs = (state.latencies.reduce((a, b) => a + b, 0) / state.latencies.length) * 1000;
+    const avgMs = state.latencies.reduce((a, b) => a + b, 0) / state.latencies.length;
     state.els.latencyMetric.textContent = `${avgMs.toFixed(0)} ms`;
+    state.els.latencyMetric.dataset.speed = avgMs < 5000 ? "fast" : avgMs < 15000 ? "medium" : "slow";
   }
 
   function showCaption(state, originalText, translatedText) {
@@ -120,7 +121,7 @@
 
       if (payload.type === "transcript") {
         showCaption(state, payload.original_text, payload.translated_text);
-        pushLatency(state, payload.latency_s);
+        pushDelay(state, payload.audio_to_text_ms);
       } else if (payload.type === "status") {
         setStatus(state, payload.status);
       }

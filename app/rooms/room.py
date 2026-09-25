@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections import deque
 from datetime import datetime
 
@@ -166,7 +167,12 @@ class Room:
         seq = 0
         async for pcm_chunk in self.ingest.read_chunks(self._chunk_bytes):
             seq += 1
-            item = (pcm_chunk, seq)
+            # Momento en que se terminó de capturar ESTE chunk de audio (no
+            # cuando arrancó) — es el punto de referencia más justo para medir
+            # "cuánto tardó en aparecer el texto desde que terminaste de decir
+            # esto" (ver TranscriptEvent.audio_to_text_ms).
+            captured_at = time.time()
+            item = (pcm_chunk, seq, captured_at)
             try:
                 self.queue.put_nowait(item)
             except asyncio.QueueFull:

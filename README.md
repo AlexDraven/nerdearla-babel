@@ -48,6 +48,23 @@ Todo el procesamiento (audio → transcripción → traducción) corre localment
 
 - **Ningún GPU disponible** → el comando default de abajo funciona igual, pero esperá que cada chunk tarde bastante — no es la mejor forma de mostrar el proyecto en vivo.
 
+### Potencial real con mejor hardware
+
+Lo que está probado y medido en esta sesión es con una **GPU de laptop** (Apple Silicon, vía Metal, corriendo Ollama nativo) — no el hardware al que apunta el proyecto (`PLAN.md` siempre pensó esto para una VPS con GPU de datacenter tipo NVIDIA T4/L4). Con esa laptop:
+
+- Una sola sala: `gemma4:e2b` responde en **~6-20s por chunk de 4s de audio** (con picos ocasionales más altos).
+- Con 2-3 salas compitiendo por la misma GPU a la vez: la demora crece y algunos chunks se descartan por timeout — el sistema sigue funcionando (backpressure/drop-oldest), pero no es la experiencia ideal.
+
+Con una GPU de datacenter dedicada, el cuadro cambia bastante: más VRAM (16-24GB+ vs. la memoria compartida de una laptop), soporte CUDA maduro en Ollama (generalmente más optimizado que el backend Metal), y cómputo sin competir con el resto del sistema operativo. Recomendación de hardware para sostener **3 salas simultáneas con demora aceptable** (pensando en un caso real de conferencia):
+
+| GPU | VRAM | Uso recomendado |
+|---|---|---|
+| **NVIDIA T4** | 16 GB | Mínimo razonable — `gemma4:e2b` (7.2 GB) entra cómodo, alcanza para 2-3 salas con `OLLAMA_NUM_PARALLEL=2` o `3`. |
+| **NVIDIA L4** | 24 GB | **Recomendada** — generación más nueva (Ada Lovelace) que T4, sustancialmente más rápida en inferencia sostenida, sigue siendo costo-efectiva para alquilar por el tiempo del evento. |
+| **NVIDIA A10G / L40S** | 24-48 GB | Si se quiere escalar a más de 3-4 salas en el mismo proceso sin aislar por contenedor (ver [`docs/SCALING.md`](docs/SCALING.md)), o usar `gemma4:e4b` (mayor calidad) sin perder velocidad. |
+
+Estos números de VRAM son una recomendación razonada (el modelo entra cómodo con margen para el KV-cache de varias salas en paralelo), **no un benchmark que hayamos corrido nosotros en esa GPU real** — no tuvimos acceso a una durante la Vibeathon. Si van a hacer la demo sobre una VPS con GPU, vale la pena una prueba rápida antes del evento: levantar `docker-compose.gpu.yml`, pullear el modelo, y mandar un par de chunks reales (`scripts/push_test_stream.sh` o directo por `/ws/mic/{id}`) para confirmar la demora real en ese hardware específico, y ajustar `OLLAMA_NUM_PARALLEL` (en `docker-compose.yml`, servicio `ollama`) para que coincida con la cantidad de salas activas.
+
 ## Quickstart (probar en 2 comandos)
 
 ```bash
