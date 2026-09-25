@@ -1,0 +1,32 @@
+talk_title: "Kubernetes en producción: lecciones aprendidas"
+speakers:
+  - "Ana Torres"
+  - "Bruno Silva"
+entries:
+  - term: "Kubernetes"
+    aliases: ["k8s"]
+    core: true
+  - term: "kubectl"
+    core: true
+  - term: "pod"
+    aliases: ["pods"]
+    core: true
+  - term: "namespace"
+    aliases: ["namespaces"]
+  - term: "Helm"
+    core: true
+  - term: "Ingress"
+  - term: "ConfigMap"
+  - term: "StatefulSet"
+  - term: "deployment"
+    aliases: ["deployments"]
+  - term: "sidecar"
+  - term: "service mesh"
+    aliases: ["mesh"]
+  - term: "Istio"
+  - term: "etcd"
+  - term: "rollout"
+    note: "no traducir como 'despliegue paso a paso', mantener 'rollout'"
+  - term: "cluster"
+    aliases: ["clúster"]
+    core: true

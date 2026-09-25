@@ -1,0 +1,72 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: babel-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+      OLLAMA_NUM_PARALLEL: 2
+      OLLAMA_KEEP_ALIVE: 30m
+      OLLAMA_MAX_LOADED_MODELS: 1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Descarga el modelo la primera vez que se levanta el stack. Corre una
+  # sola vez (restart: "no") y termina; no bloquea el healthcheck de ollama.
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull ${OLLAMA_MODEL:-gemma4:e2b}"]
+    restart: "no"
+
+  backend:
+    build: .
+    container_name: babel-backend
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    ports:
+      - "8000:8000"        # HTTP + WS viewers/control
+      - "1935:1935"        # RTMP ingest (OBS push)
+      - "9998:9998/udp"    # SRT ingest alternativo
+    environment:
+      BABEL_ROOM_ID: main
+      BABEL_OLLAMA_BASE_URL: http://ollama:11434/v1
+      BABEL_OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:e2b}
+      BABEL_INGEST_PROTOCOL: rtmp
+      BABEL_INGEST_HOST: 0.0.0.0
+      BABEL_INGEST_PORT: 1935
+      BABEL_CHUNK_SECONDS: 4
+      BABEL_MAX_QUEUE_SIZE: 2
+      BABEL_GLOSSARY_PATH: /app/glossaries/example-charla-kubernetes.yaml
+      BABEL_LOG_LEVEL: INFO
+    volumes:
+      - ./glossaries:/app/glossaries:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ollama_models:
