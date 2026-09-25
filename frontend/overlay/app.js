@@ -16,11 +16,26 @@
     statusEl.textContent = label;
   }
 
-  function showCaption(text) {
-    captionEl.textContent = text;
+  function showCaption(originalText, translatedText) {
+    captionEl.innerHTML = "";
+
+    const originalLine = document.createElement("div");
+    originalLine.className = "original";
+    originalLine.textContent = originalText;
+    captionEl.appendChild(originalLine);
+
+    const isTranslationDifferent =
+      translatedText && translatedText.trim() !== originalText.trim();
+    if (isTranslationDifferent) {
+      const translationLine = document.createElement("div");
+      translationLine.className = "translation";
+      translationLine.textContent = translatedText;
+      captionEl.appendChild(translationLine);
+    }
+
     if (hideTimer) clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      captionEl.textContent = "";
+      captionEl.innerHTML = "";
     }, captionHideDelayMs);
   }
 
@@ -34,7 +49,7 @@
     }
 
     if (payload.type === "transcript") {
-      showCaption(payload.text);
+      showCaption(payload.original_text, payload.translated_text);
     } else if (payload.type === "status") {
       setStatus(payload.status, payload.detail ? `${payload.status} (${payload.detail})` : payload.status);
     }

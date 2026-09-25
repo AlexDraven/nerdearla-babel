@@ -759,3 +759,17 @@ if __name__ == "__main__":
 - `frontend/overlay/`: cliente mínimo que se conecta a `/ws/room/{room_id}` y renderiza `TranscriptEvent` como subtítulos (browser source de OBS).
 - `scripts/push_test_stream.sh`: script de prueba con `ffmpeg -re -i sample.wav -f flv rtmp://localhost:1935/live` para validar el pipeline end-to-end sin depender de OBS real.
 - Tests: unitarios para `prompts.py` (formato del glosario), `glossary/loader.py` (parseo de YAML) y `transforms.py` (WAV válido); integración con un chunk de audio real contra un Ollama local.
+
+---
+
+## 9. Adaptación para la Vibeathon
+
+Todo lo anterior quedó implementado (esqueleto completo, tests pasando, corrida real validada con FFmpeg + Ollama). Las bases de la Vibeathon de Nerdearla trajeron 5 requisitos puntuales que ajustaron el diseño original:
+
+1. **Ingesta por archivo** (`FFmpegIngest`, `protocol="file"`): además de RTMP/SRT, FFmpeg puede leer un archivo local a velocidad real (`-re`) en loop (`-stream_loop -1`), para poder probar el proyecto clonando el repo sin necesitar OBS ni ningún push manual.
+2. **Salida dual, no un solo texto traducido**: `InferenceResult`/`TranscriptEvent` pasaron de `{lang, text}` a `{lang, original_text, translated_text}`. El prompt único (`app/inference/prompts.py:build_system_instructions`) le pide al modelo devolver la transcripción fiel en el idioma original **y**, por separado, la traducción a `BABEL_TARGET_LANG` (default `es`) — cumple los dos requisitos de evaluación ("transcripción en el idioma original" + "traducción EN→ES") con un solo call a Ollama por chunk.
+3. **N salas simultáneas por defecto, no solo documentadas**: `app/rooms/bootstrap.py:build_rooms()` arma una `Room` por cada id en `BABEL_ROOM_IDS` (`main,room2` por defecto) y `app/main.py` las arranca todas concurrentes. La Opción 1 de la sección 7 (multi-room en un proceso) pasó de ser una propuesta a ser el comportamiento real out-of-the-box; la Opción 2 (contenedores separados) sigue documentada en `docs/SCALING.md` para escalar más allá de lo que un proceso/GPU aguante.
+4. **Convención de archivos de demo por sala**: `<demo_audio_dir>/<room_id>.wav` (fallback al fixture sintético si no existe) — alcanza con dejar un WAV con el nombre de la sala para tener una demo real sin tocar código ni config.
+5. **`LICENSE` (MIT) y `README.md` reescrito** apuntando a los criterios de evaluación (sin credenciales externas, quickstart de 2 comandos, cómo probar con audio propio, cómo escalar).
+
+Detalle completo de estos cambios (archivos tocados, tests nuevos) en `docs/ARCHITECTURE.md` y `docs/SCALING.md`, que quedaron actualizados para reflejar el comportamiento real.

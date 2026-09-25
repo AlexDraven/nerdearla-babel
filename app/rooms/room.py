@@ -31,6 +31,8 @@ class Room:
             host=settings.ingest_host,
             port=settings.ingest_port,
             sample_rate=settings.sample_rate,
+            file_path=settings.ingest_file_path,
+            loop=settings.ingest_loop,
         )
         client = OllamaOpenAICompatClient(
             base_url=settings.ollama_base_url,
@@ -44,6 +46,7 @@ class Room:
             glossary_inline_threshold=settings.glossary_inline_threshold,
             inference_timeout=settings.inference_timeout_seconds,
             on_result=self._emit_transcript,
+            target_lang=settings.target_lang,
         )
         self._tasks: list[asyncio.Task] = []
         self._chunk_bytes = int(settings.chunk_seconds * settings.sample_rate * 2)

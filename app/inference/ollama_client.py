@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 
 class InferenceResult(BaseModel):
     lang: str = "unknown"
-    text: str = ""
+    original_text: str = ""
+    translated_text: str = ""
 
 
 class OllamaOpenAICompatClient:
@@ -34,4 +35,4 @@ class OllamaOpenAICompatClient:
             return InferenceResult.model_validate_json(raw)
         except (ValidationError, json.JSONDecodeError):
             logger.warning("Respuesta no-JSON del modelo, uso fallback: %r", raw)
-            return InferenceResult(lang="unknown", text=raw.strip())
+            return InferenceResult(lang="unknown", original_text=raw.strip())

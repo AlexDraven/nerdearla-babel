@@ -47,21 +47,27 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"        # HTTP + WS viewers/control
-      - "1935:1935"        # RTMP ingest (OBS push)
+      - "1935:1935"        # RTMP ingest sala 1 (solo se usa si BABEL_INGEST_PROTOCOL=rtmp)
+      - "1936:1936"        # RTMP ingest sala 2
       - "9998:9998/udp"    # SRT ingest alternativo
     environment:
-      BABEL_ROOM_ID: main
+      BABEL_ROOM_IDS: main,room2                    # 2 salas simultáneas por defecto — ver docs/SCALING.md para más
       BABEL_OLLAMA_BASE_URL: http://ollama:11434/v1
       BABEL_OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:e2b}
-      BABEL_INGEST_PROTOCOL: rtmp
+      BABEL_TARGET_LANG: es
+      # Modo "file": cada sala ingiere en loop tests/fixtures/<room_id>.wav (o el
+      # fixture de ejemplo si ese archivo no existe) — demo sin pasos manuales.
+      # Para usar un stream real de OBS/consola, cambiar a BABEL_INGEST_PROTOCOL=rtmp.
+      BABEL_INGEST_PROTOCOL: file
       BABEL_INGEST_HOST: 0.0.0.0
-      BABEL_INGEST_PORT: 1935
+      BABEL_INGEST_BASE_PORT: 1935
       BABEL_CHUNK_SECONDS: 4
       BABEL_MAX_QUEUE_SIZE: 2
       BABEL_GLOSSARY_PATH: /app/glossaries/example-charla-kubernetes.yaml
       BABEL_LOG_LEVEL: INFO
     volumes:
       - ./glossaries:/app/glossaries:ro
+      - ./tests/fixtures:/app/tests/fixtures:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
       interval: 15s

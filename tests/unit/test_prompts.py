@@ -1,5 +1,5 @@
 from app.glossary.models import Glossary, GlossaryEntry
-from app.inference.prompts import SYSTEM_INSTRUCTIONS, build_messages
+from app.inference.prompts import build_messages, build_system_instructions
 
 
 def _glossary(n_entries: int, core_terms: set[str] | None = None) -> Glossary:
@@ -18,7 +18,7 @@ def test_build_messages_shape():
     messages = build_messages(None, inline_threshold=40, audio_b64="QUJD", audio_format="wav")
 
     assert messages[0]["role"] == "system"
-    assert messages[0]["content"].startswith(SYSTEM_INSTRUCTIONS)
+    assert messages[0]["content"].startswith(build_system_instructions("es"))
 
     user_content = messages[1]["content"]
     assert messages[1]["role"] == "user"
@@ -28,7 +28,16 @@ def test_build_messages_shape():
 
 def test_no_glossary_block_when_glossary_is_none():
     messages = build_messages(None, inline_threshold=40, audio_b64="QUJD")
-    assert messages[0]["content"] == SYSTEM_INSTRUCTIONS
+    assert messages[0]["content"] == build_system_instructions("es")
+
+
+def test_target_lang_is_injected_into_system_instructions():
+    messages_es = build_messages(None, inline_threshold=40, audio_b64="QUJD", target_lang="es")
+    messages_en = build_messages(None, inline_threshold=40, audio_b64="QUJD", target_lang="en")
+
+    assert "español" in messages_es[0]["content"]
+    assert "inglés" in messages_en[0]["content"]
+    assert messages_es[0]["content"] != messages_en[0]["content"]
 
 
 def test_small_glossary_is_included_in_full():

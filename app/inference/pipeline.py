@@ -20,12 +20,14 @@ class InferencePipeline:
         glossary_inline_threshold: int,
         inference_timeout: float,
         on_result: Callable[[TranscriptEvent], Awaitable[None]],
+        target_lang: str = "es",
     ):
         self._client = client
         self._sample_rate = sample_rate
         self._glossary_threshold = glossary_inline_threshold
         self._timeout = inference_timeout
         self._on_result = on_result
+        self._target_lang = target_lang
 
     async def run(self, queue: asyncio.Queue, glossary: Glossary | None) -> None:
         """Consumer: nunca bloquea al productor. Mientras este await está
@@ -44,12 +46,18 @@ class InferencePipeline:
     async def _process_chunk(self, pcm_chunk: bytes, seq: int, glossary: Glossary | None) -> None:
         t0 = time.monotonic()
         audio_b64 = pcm_to_wav_base64(pcm_chunk, sample_rate=self._sample_rate)
-        messages = build_messages(glossary, self._glossary_threshold, audio_b64)
+        messages = build_messages(glossary, self._glossary_threshold, audio_b64, target_lang=self._target_lang)
         result = await asyncio.wait_for(
             self._client.transcribe_or_translate(messages), timeout=self._timeout,
         )
-        if not result.text.strip():
+        if not result.original_text.strip() and not result.translated_text.strip():
             return
         await self._on_result(
-            TranscriptEvent(seq=seq, lang=result.lang, text=result.text, latency_s=time.monotonic() - t0)
+            TranscriptEvent(
+                seq=seq,
+                lang=result.lang,
+                original_text=result.original_text,
+                translated_text=result.translated_text,
+                latency_s=time.monotonic() - t0,
+            )
         )

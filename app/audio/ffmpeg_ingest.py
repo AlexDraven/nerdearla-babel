@@ -10,11 +10,21 @@ class FFmpegIngest:
     y decodifica el stream entrante a PCM s16le 16kHz mono en stdout.
     """
 
-    def __init__(self, protocol: str, host: str, port: int, sample_rate: int = 16000):
+    def __init__(
+        self,
+        protocol: str,
+        host: str,
+        port: int,
+        sample_rate: int = 16000,
+        file_path: str | None = None,
+        loop: bool = True,
+    ):
         self.protocol = protocol
         self.host = host
         self.port = port
         self.sample_rate = sample_rate
+        self.file_path = file_path
+        self.loop = loop
         self._proc: asyncio.subprocess.Process | None = None
 
     def _build_cmd(self) -> list[str]:
@@ -22,6 +32,13 @@ class FFmpegIngest:
             input_args = ["-listen", "1", "-i", f"rtmp://{self.host}:{self.port}/live"]
         elif self.protocol == "srt":
             input_args = ["-i", f"srt://{self.host}:{self.port}?mode=listener"]
+        elif self.protocol == "file":
+            if not self.file_path:
+                raise ValueError("ingest_file_path es requerido para protocol='file'")
+            # -re: lee el archivo a velocidad real, simulando un stream en vivo.
+            # -stream_loop -1: repite el archivo indefinidamente (demo sin intervención manual).
+            loop_args = ["-stream_loop", "-1"] if self.loop else []
+            input_args = ["-re", *loop_args, "-i", self.file_path]
         else:
             raise ValueError(f"Protocolo de ingesta no soportado: {self.protocol}")
 

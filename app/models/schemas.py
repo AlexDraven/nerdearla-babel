@@ -7,7 +7,8 @@ class TranscriptEvent(BaseModel):
     type: Literal["transcript"] = "transcript"
     seq: int
     lang: str
-    text: str
+    original_text: str
+    translated_text: str
     latency_s: float
 
 

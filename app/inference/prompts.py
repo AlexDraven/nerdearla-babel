@@ -1,17 +1,25 @@
 from ..glossary.models import Glossary
 
-SYSTEM_INSTRUCTIONS = """Sos un motor de subtitulado en vivo para una conferencia de tecnología.
+TARGET_LANG_LABELS = {"es": "español", "en": "inglés"}
+
+
+def build_system_instructions(target_lang: str) -> str:
+    label = TARGET_LANG_LABELS.get(target_lang, target_lang)
+    return f"""Sos un motor de subtitulado en vivo para una conferencia de tecnología.
 Vas a recibir un fragmento de audio de 3 a 5 segundos.
 
 Reglas:
-1. Si el audio está en español: transcribilo, corrigiendo puntuación y
-   eliminando muletillas, sin traducir ni resumir.
-2. Si el audio está en inglés: traducilo al español rioplatense, fiel y
-   manteniendo el registro técnico.
-3. Si es silencio o no es inteligible, devolvé texto vacío.
-4. Usá el glosario técnico provisto para escribir bien nombres propios,
+1. Detectá el idioma en el que se habla.
+2. "original_text": transcripción fiel de lo dicho en su idioma original,
+   corrigiendo puntuación y eliminando muletillas, sin traducir ni resumir.
+3. "translated_text": la traducción de ese mismo contenido a {label} ({target_lang}).
+   Si el idioma original ya es {label}, repetí el mismo texto en "translated_text"
+   (no hace falta traducir).
+4. Si es silencio o no es inteligible, devolvé "original_text" y "translated_text" vacíos.
+5. Usá el glosario técnico provisto para escribir bien nombres propios,
    librerías y términos técnicos (aceptá spanglish común si es lo que se oye).
-5. Respondé EXCLUSIVAMENTE JSON válido: {"lang": "es"|"en"|"unknown", "text": "..."}
+6. Respondé EXCLUSIVAMENTE JSON válido:
+   {{"lang": "es"|"en"|"unknown", "original_text": "...", "translated_text": "..."}}
 """
 
 
@@ -36,11 +44,12 @@ def build_messages(
     glossary: Glossary | None,
     inline_threshold: int,
     audio_b64: str,
+    target_lang: str = "es",
     audio_format: str = "wav",
 ) -> list[dict]:
     block = _format_glossary_block(glossary, inline_threshold) if glossary else ""
     return [
-        {"role": "system", "content": SYSTEM_INSTRUCTIONS + block},
+        {"role": "system", "content": build_system_instructions(target_lang) + block},
         {
             "role": "user",
             "content": [

@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from .config import get_settings
 from .glossary.loader import load_glossary_from_yaml
-from .rooms.room import Room
+from .rooms.bootstrap import build_rooms
 from .rooms.room_manager import RoomManager
 
 logging.basicConfig(level=logging.INFO)
@@ -17,19 +17,20 @@ room_manager = RoomManager()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    glossary = load_glossary_from_yaml(settings.glossary_path) if settings.glossary_path else None
-    if glossary:
-        logger.info("Glosario cargado: %s (%d términos)", glossary.talk_title, len(glossary.entries))
+    rooms = build_rooms(settings)
+    for room in rooms:
+        room_manager.register(room)
+        await room.start()
+        if room.settings.ingest_protocol == "file":
+            source = room.ingest.file_path
+        else:
+            source = f"{room.settings.ingest_host}:{room.settings.ingest_port}"
+        logger.info("Sala '%s' iniciada (%s -> %s)", room.room_id, room.settings.ingest_protocol, source)
 
-    room = Room(room_id=settings.room_id, settings=settings, glossary=glossary)
-    room_manager.register(room)
-    await room.start()
-    logger.info(
-        "Sala '%s' iniciada. Esperando stream %s en %s:%s",
-        room.room_id, settings.ingest_protocol, settings.ingest_host, settings.ingest_port,
-    )
     yield
-    await room.stop()
+
+    for room in room_manager.list():
+        await room.stop()
 
 
 app = FastAPI(title="nerdearla-babel", lifespan=lifespan)

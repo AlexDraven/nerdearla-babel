@@ -1,35 +1,109 @@
 # nerdearla-babel
 
-Transcripción en vivo (ES → ES) y traducción (EN → ES) para charlas de conferencias de tecnología, 100% self-hosted: FFmpeg + FastAPI/asyncio + Ollama (Gemma 4). Pensado para reemplazar herramientas SaaS de captioning pagas por minuto y escalar a múltiples salas en un VPS con GPU propio.
+Subtítulos en vivo, self-hosted, para charlas de conferencias de tecnología: transcripción en el idioma original (ES o EN) **y** traducción a español en tiempo real, corriendo 100% en tu propia infraestructura — sin SaaS, sin pagar por minuto, sin mandar audio a un tercero.
 
-Ver [`PLAN.md`](PLAN.md) para el diseño técnico completo y [`docs/`](docs/) para arquitectura, escalado y despliegue.
+Construido para la [Vibeathon de Nerdearla](https://nerdearla.com) (24-25 de septiembre de 2026).
 
-## Quickstart
+📹 **Video demo**: _[completar con el link de YouTube antes de entregar]_
+
+## Qué hace
+
+- Recibe audio en vivo (RTMP/SRT desde OBS o una consola de sonido) **o** un archivo de audio local (para probar sin infraestructura).
+- Transcribe en tiempo real en el idioma original (español o inglés).
+- Traduce en tiempo real a español (configurable a cualquier otro idioma objetivo — ver [`.env.example`](.env.example)).
+- Muestra los subtítulos en un overlay web (usable como browser source de OBS, o en cualquier navegador).
+- Procesa **2 sesiones/salas en simultáneo por defecto**, con arquitectura lista para escalar a más.
+
+## Sin credenciales externas
+
+Todo el procesamiento (audio → transcripción → traducción) corre localmente vía [Ollama](https://ollama.com) + el modelo `gemma4:e2b` (Gemma 4, con soporte nativo de audio). **No hace falta ninguna API key ni cuenta externa.** Lo único que se necesita es:
+
+- Docker + Docker Compose v2.
+- GPU NVIDIA (recomendado para latencia baja; también corre en CPU, más lento — ver [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)).
+
+## Quickstart (probar en 2 comandos)
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-Ollama descarga el modelo (`gemma4:e2b` por defecto) automáticamente en el primer arranque vía el servicio `ollama-init`. OBS (o la consola de sonido de la sala) empuja el stream a `rtmp://<host>:1935/live`; los subtítulos se transmiten a `ws://<host>:8000/ws/room/main` y se pueden ver con `frontend/overlay/index.html` como browser source en OBS.
+El servicio `ollama-init` descarga `gemma4:e2b` automáticamente la primera vez (puede tardar unos minutos). Cuando el backend esté arriba (`docker compose logs -f backend`), ya hay **2 salas corriendo en simultáneo** (`main` y `room2`), cada una en loop sobre un archivo de audio de `tests/fixtures/` (modo `file`, sin necesidad de OBS ni ningún push manual).
 
-Para probar el pipeline sin un stream real: `./scripts/push_test_stream.sh <archivo-de-audio>`.
-
-## Desarrollo local (sin Docker)
+Abrí el overlay de subtítulos para cada sala — es un archivo estático, se abre directo desde el filesystem, no lo sirve el backend — en dos pestañas del navegador:
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+open "frontend/overlay/index.html?room=main&ws_host=localhost:8000"      # macOS
+open "frontend/overlay/index.html?room=room2&ws_host=localhost:8000"
+# Linux: xdg-open "frontend/overlay/index.html?room=main&ws_host=localhost:8000"
+# o directamente arrastrá frontend/overlay/index.html al navegador y agregale
+# ?room=main&ws_host=localhost:8000 / ?room=room2&ws_host=localhost:8000 a la URL
+```
+
+Para confirmar que ambas salas están efectivamente en vivo y procesando en paralelo:
+
+```bash
+curl http://localhost:8000/rooms/main/status
+curl http://localhost:8000/rooms/room2/status
+```
+
+## Probar con tus propios audios
+
+El repo incluye `tests/fixtures/sample_audio_5s.wav` (un tono sintético, solo para validar la plomería — **no** genera una transcripción con sentido). Para una demo real:
+
+1. Conseguí 1-2 clips cortos de habla real (por ejemplo, de una charla vieja de Nerdearla en YouTube — uno en español y otro en inglés, para mostrar ambos casos: transcripción directa vs. transcripción + traducción).
+2. Guardalos como `tests/fixtures/main.wav` y `tests/fixtures/room2.wav` (formato WAV; si no lo tenés en WAV, `ffmpeg -i entrada.mp3 tests/fixtures/main.wav` lo convierte).
+3. `docker compose restart backend` — cada sala detecta el archivo por convención (`<room_id>.wav`) sin tocar código ni config.
+
+## Usar con un stream real (OBS / consola de sonido)
+
+Cambiá en `.env`:
+
+```
+BABEL_INGEST_PROTOCOL=rtmp
+```
+
+y reiniciá. Cada sala escucha en `BABEL_INGEST_BASE_PORT + índice` (por defecto: `main` → `1935`, `room2` → `1936`). Apuntá OBS (Configuración → Emisión → Servidor personalizado) a `rtmp://<host>:1935/live` para `main`, o probalo sin OBS con:
+
+```bash
+./scripts/push_test_stream.sh tests/fixtures/main.wav localhost 1935
+```
+
+## Escalar a más de 2 salas
+
+Alcanza con editar una variable de entorno — no hace falta tocar código:
+
+```
+BABEL_ROOM_IDS=main,room2,room3,room4
+```
+
+Cada sala nueva toma el siguiente puerto de ingesta automáticamente y comparte la misma instancia de Ollama (con `OLLAMA_MAX_LOADED_MODELS=1`, todas usan el mismo modelo cargado en memoria, sin duplicar VRAM). Este modo ("multi-room en un proceso") sirve mientras un solo backend/GPU dé abasto. Para escalar más allá de eso en producción real (aislar recursos por sala, distribuir entre varias GPUs/VPS), ver [`docs/SCALING.md`](docs/SCALING.md).
+
+## Arquitectura
+
+Diseño completo (flujo asíncrono, backpressure, estrategia de glosario técnico, decisiones de por qué Ollama necesita el endpoint OpenAI-compatible para audio) en [`PLAN.md`](PLAN.md) y [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Desarrollo y tests (sin Docker)
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 pytest
 ```
 
+Requiere `ffmpeg` instalado localmente (`brew install ffmpeg` / `apt install ffmpeg`) para correr el backend fuera de Docker.
+
 ## Estructura
 
 ```
-app/            backend FastAPI (audio, glosario, inferencia, salas, websockets)
-frontend/overlay/   overlay de subtítulos para usar como browser source en OBS
-glossaries/     glosarios técnicos por charla (YAML)
-scripts/        utilidades (pull de modelo, stream de prueba)
-docs/           arquitectura, escalado a N salas, despliegue
-tests/          unitarios e integración
+app/                backend FastAPI (audio, glosario, inferencia, salas, websockets)
+frontend/overlay/    overlay de subtítulos (browser source de OBS o cualquier navegador)
+glossaries/          glosarios técnicos por charla (YAML) — glossaries/<room_id>.yaml
+tests/fixtures/      audios de demo (uno por sala, por convención <room_id>.wav)
+scripts/             utilidades (pull de modelo, push de stream de prueba)
+docs/                arquitectura, escalado a N salas, despliegue
 ```
+
+## Licencia
+
+[MIT](LICENSE).

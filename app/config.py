@@ -5,14 +5,20 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BABEL_", env_file=".env")
 
     room_id: str = "main"
+    room_ids: str = "main,room2"     # CSV de salas a bootstrapear (ver app/rooms/bootstrap.py) — 2 por defecto
+    ingest_base_port: int = 1935     # sala N escucha en ingest_base_port + N
 
     ollama_base_url: str = "http://ollama:11434/v1"
     ollama_api_key: str = "ollama"          # dummy, lo exige el cliente openai
     ollama_model: str = "gemma4:e2b"        # configurable a gemma4:e4b
+    target_lang: str = "es"                 # idioma al que se traduce (es|en)
 
-    ingest_protocol: str = "rtmp"           # "rtmp" | "srt"
+    ingest_protocol: str = "rtmp"           # "rtmp" | "srt" | "file"
     ingest_host: str = "0.0.0.0"
     ingest_port: int = 1935
+    ingest_file_path: str | None = None     # usado cuando ingest_protocol == "file"
+    ingest_loop: bool = True                # loopear el archivo en modo "file"
+    demo_audio_dir: str = "tests/fixtures"  # convención: <demo_audio_dir>/<room_id>.wav
     sample_rate: int = 16000
     chunk_seconds: float = 4.0
 
