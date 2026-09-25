@@ -30,13 +30,12 @@ async def test_pipeline_emits_transcript_event_for_nonempty_text():
 
     pipeline = InferencePipeline(
         client=FakeOllamaClient(
-            [InferenceResult(lang="en", original_text="hello world", translated_text="hola mundo")]
+            [InferenceResult(lang="en", text_es="hola mundo", text_en="hello world")]
         ),
         sample_rate=16000,
         glossary_inline_threshold=40,
         inference_timeout=1.0,
         on_result=on_result,
-        target_lang="es",
     )
     queue: asyncio.Queue = asyncio.Queue()
     captured_at = time.time() - 0.05  # simula que el chunk se terminó de capturar hace 50ms
@@ -49,8 +48,8 @@ async def test_pipeline_emits_transcript_event_for_nonempty_text():
     assert len(events) == 1
     assert events[0].seq == 1
     assert events[0].lang == "en"
-    assert events[0].original_text == "hello world"
-    assert events[0].translated_text == "hola mundo"
+    assert events[0].text_es == "hola mundo"
+    assert events[0].text_en == "hello world"
     assert events[0].audio_to_text_ms >= 50
 
 
@@ -61,7 +60,7 @@ async def test_pipeline_skips_empty_text():
         events.append(event)
 
     pipeline = InferencePipeline(
-        client=FakeOllamaClient([InferenceResult(lang="unknown", original_text="", translated_text="")]),
+        client=FakeOllamaClient([InferenceResult(lang="unknown", text_es="", text_en="")]),
         sample_rate=16000,
         glossary_inline_threshold=40,
         inference_timeout=1.0,
@@ -74,6 +73,46 @@ async def test_pipeline_skips_empty_text():
     await queue.join()
     task.cancel()
 
+    assert events == []
+
+
+async def test_pipeline_skips_ollama_call_entirely_below_silence_threshold():
+    """El gate de silencio (silence_rms_threshold) corta ANTES de llamar al
+    cliente — no solo descarta el resultado, evita la llamada. Reproduce el
+    bug real: con el mic en silencio, gemma4:e2b a veces "alucinaba" una
+    frase con sentido en vez de devolver texto vacío (la regla del prompt
+    que pide vacío en silencio no alcanza por sí sola)."""
+    calls = 0
+
+    class CountingClient:
+        async def transcribe_or_translate(self, messages: list[dict]) -> InferenceResult:
+            nonlocal calls
+            calls += 1
+            # si esto se llegara a llamar, simula justo el bug: texto
+            # inventado con sentido a partir de audio silencioso.
+            return InferenceResult(lang="es", text_es="hablando de arquitectura", text_en="talking about architecture")
+
+    events: list[TranscriptEvent] = []
+
+    async def on_result(event: TranscriptEvent) -> None:
+        events.append(event)
+
+    pipeline = InferencePipeline(
+        client=CountingClient(),
+        sample_rate=16000,
+        glossary_inline_threshold=40,
+        inference_timeout=1.0,
+        on_result=on_result,
+        silence_rms_threshold=0.015,
+    )
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put((b"\x00\x00" * 8000, 1, time.time()))  # silencio digital puro
+
+    task = asyncio.create_task(pipeline.run(queue, glossary=None))
+    await queue.join()
+    task.cancel()
+
+    assert calls == 0
     assert events == []
 
 
@@ -91,7 +130,7 @@ async def test_pipeline_survives_client_errors_and_keeps_consuming():
             self._calls += 1
             if self._calls == 1:
                 raise RuntimeError("Ollama no responde")
-            return InferenceResult(lang="es", original_text="segundo chunk ok", translated_text="segundo chunk ok")
+            return InferenceResult(lang="es", text_es="segundo chunk ok", text_en="second chunk ok")
 
     pipeline = InferencePipeline(
         client=FlakyClient(),
@@ -110,7 +149,7 @@ async def test_pipeline_survives_client_errors_and_keeps_consuming():
 
     assert len(events) == 1
     assert events[0].seq == 2
-    assert events[0].original_text == "segundo chunk ok"
+    assert events[0].text_es == "segundo chunk ok"
 
 
 async def test_room_produce_drops_oldest_chunk_when_queue_is_full():
@@ -142,7 +181,7 @@ async def test_two_rooms_process_concurrently_without_blocking_each_other():
         class SlowClient:
             async def transcribe_or_translate(self, messages: list[dict]) -> InferenceResult:
                 await asyncio.sleep(delay)
-                return InferenceResult(lang="es", original_text="ok", translated_text="ok")
+                return InferenceResult(lang="es", text_es="ok", text_en="ok")
 
         async def on_result(event: TranscriptEvent) -> None:
             events.append(event)

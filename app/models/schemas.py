@@ -6,9 +6,10 @@ from pydantic import BaseModel
 class TranscriptEvent(BaseModel):
     type: Literal["transcript"] = "transcript"
     seq: int
-    lang: str
-    original_text: str
-    translated_text: str
+    lang: str    # idioma detectado como efectivamente hablado (es|en|unknown)
+    text_es: str  # siempre en español — transcripción fiel si se habló en
+                  # español, traducción si se habló en inglés
+    text_en: str  # siempre en inglés — simétrico a text_es
     latency_s: float          # solo el tiempo de la llamada a Ollama
     audio_to_text_ms: int = 0  # demora real "de punta a punta": desde que se
                                # terminó de capturar el audio hasta que este

@@ -26,12 +26,12 @@ async def lifespan(app: FastAPI):
     for room in rooms:
         room_manager.register(room)
         await room.start()
-        if room.settings.ingest_protocol == "file":
-            source = room.ingest.file_path
-        elif room.settings.ingest_protocol == "mic":
+        if room.settings.ingest_protocol == "mic":
             source = "esperando a que alguien grabe por /ws/mic/{id}"
+        elif room.settings.ingest_protocol == "file":
+            source = f"{room.ingest.file_path} (PAUSADA — activar con POST /rooms/{room.room_id}/resume o desde el control room)"
         else:
-            source = f"{room.settings.ingest_host}:{room.settings.ingest_port}"
+            source = f"{room.settings.ingest_host}:{room.settings.ingest_port} (PAUSADA — activar con POST /rooms/{room.room_id}/resume o desde el control room)"
         logger.info("Sala '%s' iniciada (%s -> %s)", room.room_id, room.settings.ingest_protocol, source)
 
     yield
@@ -140,6 +140,33 @@ async def reload_glossary(room_id: str, path: str):
 
     room.glossary = glossary
     return {"ok": True, "terms": len(room.glossary.entries)}
+
+
+@app.post("/rooms/{room_id}/pause")
+async def pause_room(room_id: str):
+    """Corta la ingesta de una sala no-mic desde el control room (ej. para
+    liberarle capacidad de inferencia a la sala mic mientras alguien prueba
+    con su micrófono), sin bajar el proceso ni el resto de las salas."""
+    room = room_manager.get(room_id)
+    if room is None:
+        raise HTTPException(404, "sala no encontrada")
+    try:
+        await room.pause()
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "status": room.status}
+
+
+@app.post("/rooms/{room_id}/resume")
+async def resume_room(room_id: str):
+    room = room_manager.get(room_id)
+    if room is None:
+        raise HTTPException(404, "sala no encontrada")
+    try:
+        await room.resume()
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "status": room.status}
 
 
 @app.websocket("/ws/room/{room_id}")

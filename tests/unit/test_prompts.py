@@ -18,7 +18,7 @@ def test_build_messages_shape():
     messages = build_messages(None, inline_threshold=40, audio_b64="QUJD", audio_format="wav")
 
     assert messages[0]["role"] == "system"
-    assert messages[0]["content"].startswith(build_system_instructions("es"))
+    assert messages[0]["content"].startswith(build_system_instructions())
 
     user_content = messages[1]["content"]
     assert messages[1]["role"] == "user"
@@ -28,16 +28,17 @@ def test_build_messages_shape():
 
 def test_no_glossary_block_when_glossary_is_none():
     messages = build_messages(None, inline_threshold=40, audio_b64="QUJD")
-    assert messages[0]["content"] == build_system_instructions("es")
+    assert messages[0]["content"] == build_system_instructions()
 
 
-def test_target_lang_is_injected_into_system_instructions():
-    messages_es = build_messages(None, inline_threshold=40, audio_b64="QUJD", target_lang="es")
-    messages_en = build_messages(None, inline_threshold=40, audio_b64="QUJD", target_lang="en")
+def test_system_instructions_assert_spanish_and_english_only():
+    instructions = build_system_instructions()
 
-    assert "español" in messages_es[0]["content"]
-    assert "inglés" in messages_en[0]["content"]
-    assert messages_es[0]["content"] != messages_en[0]["content"]
+    assert "español o en inglés" in instructions
+    assert "text_es" in instructions
+    assert "text_en" in instructions
+    # regla explícita contra caracteres de otros alfabetos/escrituras
+    assert "otro alfabeto" in instructions
 
 
 def test_small_glossary_is_included_in_full():

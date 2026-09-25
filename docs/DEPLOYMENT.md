@@ -31,7 +31,7 @@ Este archivo solo levanta el `backend` (no `ollama`/`ollama-init` — no hacen f
 
 ```bash
 cp .env.example .env
-# editar .env si hace falta: BABEL_ROOM_IDS, OLLAMA_MODEL, BABEL_TARGET_LANG, etc.
+# editar .env si hace falta: BABEL_ROOM_IDS, OLLAMA_MODEL, BABEL_SILENCE_RMS_THRESHOLD, etc.
 # (docker-compose.yml lee estas variables via ${VAR:-default}, así que .env
 # sí tiene efecto real sobre el stack — no hace falta tocar el compose)
 
@@ -45,7 +45,7 @@ El servicio `ollama-init` descarga el modelo (`gemma4:e2b` por defecto) automát
 ./scripts/pull_model.sh gemma4:e4b
 ```
 
-Por defecto el stack levanta **3 salas**: `main` y `room2` (`BABEL_INGEST_PROTOCOL=file`) ya arrancan ingiriendo en loop el audio de `tests/fixtures/` — no requiere ningún push manual — y `mic` (forzada a modo micrófono vía `BABEL_MIC_ROOM_IDS=mic`, sin importar `BABEL_INGEST_PROTOCOL`) queda esperando a que alguien grabe desde `frontend/mic/`. Ver [`frontend/dashboard/`](../frontend/dashboard/) para verlas las 3 en una sola pantalla.
+Por defecto el stack levanta **3 salas**: `main` y `room2` (`BABEL_INGEST_PROTOCOL=file`, audio de `tests/fixtures/`) y `mic` (forzada a modo micrófono vía `BABEL_MIC_ROOM_IDS=mic`, sin importar `BABEL_INGEST_PROTOCOL`). Las tres arrancan **inactivas** — `main`/`room2` en estado "paused" (nadie ingiere nada hasta activarlas) y `mic` en "waiting_for_mic" (esperando a que alguien grabe desde `frontend/mic/`). Activar `main`/`room2` es un click en "Reanudar" en el [control room](../frontend/dashboard/) (o `POST /rooms/{id}/resume`) — así arrancan solo cuando de verdad se las va a mostrar, sin competir por capacidad de inferencia con la sala mic desde el arranque.
 
 ## Validar el pipeline
 
@@ -75,3 +75,15 @@ Mientras corre:
 - **Nunca usar `latest`** para la imagen `ollama/ollama` una vez estabilizado el setup — pinnear una versión concreta.
 - Ajustar `BABEL_MAX_QUEUE_SIZE`, `BABEL_CHUNK_SECONDS` y `OLLAMA_NUM_PARALLEL` según la latencia observada en vivo (ver `GET /rooms/{id}/status` para el tamaño de cola en tiempo real como señal de si el sistema está atrasado).
 - Para más de 3 salas o escalar más allá de un solo proceso/GPU, ver [`SCALING.md`](SCALING.md).
+
+### Recomendación de hardware para escalar a más salas
+
+Lo medido en `main` de este repo es con una **GPU de laptop** (Apple Silicon, vía Metal, Ollama nativo) — no el hardware al que apunta el proyecto en producción (`PLAN.md` siempre pensó esto para una VPS con GPU de datacenter). Con una GPU de datacenter dedicada el cuadro mejora más: más VRAM (16-24GB+ vs. la memoria compartida de una laptop), soporte CUDA maduro en Ollama (generalmente más optimizado que el backend Metal), y cómputo sin competir con el resto del sistema operativo — margen para sostener bastantes más salas simultáneas con la misma latencia baja, o para charlas más largas/glosarios más grandes:
+
+| GPU | VRAM | Uso recomendado |
+|---|---|---|
+| **NVIDIA T4** | 16 GB | Mínimo razonable — `gemma4:e2b` (7.2 GB) entra cómodo, buen margen para varias salas más con `OLLAMA_NUM_PARALLEL` ajustado a la cantidad activa. |
+| **NVIDIA L4** | 24 GB | **Recomendada** — generación más nueva (Ada Lovelace) que T4, sustancialmente más rápida en inferencia sostenida, sigue siendo costo-efectiva para alquilar por el tiempo del evento. |
+| **NVIDIA A10G / L40S** | 24-48 GB | Para escalar a muchas más salas en el mismo proceso sin aislar por contenedor (ver [`SCALING.md`](SCALING.md)), o usar `gemma4:e4b` (mayor calidad) sin perder velocidad. |
+
+Estos números de VRAM son una recomendación razonada (el modelo entra cómodo con margen para el KV-cache de varias salas en paralelo), **no un benchmark corrido en esa GPU real** — no hubo acceso a una durante el desarrollo. Antes de una demo sobre una VPS con GPU, vale la pena una prueba rápida: levantar `docker-compose.gpu.yml`, pullear el modelo, y mandar un par de chunks reales (`scripts/push_test_stream.sh` o directo por `/ws/mic/{id}`) para confirmar la demora real en ese hardware específico, y ajustar `OLLAMA_NUM_PARALLEL` para que coincida con la cantidad de salas activas.

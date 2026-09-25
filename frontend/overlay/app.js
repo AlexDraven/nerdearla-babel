@@ -3,10 +3,6 @@
   const roomId = params.get("room") || "main";
   const wsHost = params.get("ws_host") || window.location.host || "localhost:8000";
   const mode = params.get("mode") === "reading" ? "reading" : "broadcast";
-  // Idioma al que traduce el backend (BABEL_TARGET_LANG, "es" por defecto) —
-  // se usa para marcar `lang` en la línea traducida y que un lector de
-  // pantalla la pronuncie con las reglas fonéticas correctas.
-  const targetLang = params.get("target_lang") || "es";
   const captionHideDelayMs = 6000;
   const maxHistoryEntries = 200;
   const fontSizeStepRem = 0.15;
@@ -32,23 +28,23 @@
   }
 
   // --- Modo broadcast (OBS): línea flotante efímera, sin scrollback ---
+  // Siempre las dos líneas (ES + EN) — el backend ya manda los dos idiomas
+  // en cada evento, sin importar cuál se habló realmente (ver payload.lang).
 
-  function showEphemeralCaption(originalText, translatedText, lang) {
+  function showEphemeralCaption(textEs, textEn) {
     captionEl.innerHTML = "";
 
-    const originalLine = document.createElement("div");
-    originalLine.className = "original";
-    originalLine.textContent = originalText;
-    if (lang && lang !== "unknown") originalLine.lang = lang;
-    captionEl.appendChild(originalLine);
+    const esLine = document.createElement("div");
+    esLine.className = "original";
+    esLine.lang = "es";
+    esLine.textContent = textEs;
+    captionEl.appendChild(esLine);
 
-    if (translatedText && translatedText.trim() !== originalText.trim()) {
-      const translationLine = document.createElement("div");
-      translationLine.className = "translation";
-      translationLine.textContent = translatedText;
-      translationLine.lang = targetLang;
-      captionEl.appendChild(translationLine);
-    }
+    const enLine = document.createElement("div");
+    enLine.className = "translation";
+    enLine.lang = "en";
+    enLine.textContent = textEn;
+    captionEl.appendChild(enLine);
 
     if (hideTimer) clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
@@ -116,19 +112,17 @@
     time.textContent = date.toLocaleTimeString();
     entry.appendChild(time);
 
-    const original = document.createElement("div");
-    original.className = "original";
-    original.textContent = payload.original_text;
-    if (payload.lang && payload.lang !== "unknown") original.lang = payload.lang;
-    entry.appendChild(original);
+    const esLine = document.createElement("div");
+    esLine.className = "original";
+    esLine.lang = "es";
+    esLine.textContent = payload.text_es;
+    entry.appendChild(esLine);
 
-    if (payload.translated_text && payload.translated_text.trim() !== payload.original_text.trim()) {
-      const translation = document.createElement("div");
-      translation.className = "translation";
-      translation.textContent = payload.translated_text;
-      translation.lang = targetLang;
-      entry.appendChild(translation);
-    }
+    const enLine = document.createElement("div");
+    enLine.className = "translation";
+    enLine.lang = "en";
+    enLine.textContent = payload.text_en;
+    entry.appendChild(enLine);
 
     historyEl.appendChild(entry);
     while (historyEl.children.length > maxHistoryEntries) {
@@ -156,7 +150,7 @@
       if (mode === "reading") {
         appendHistoryEntry(payload);
       } else {
-        showEphemeralCaption(payload.original_text, payload.translated_text, payload.lang);
+        showEphemeralCaption(payload.text_es, payload.text_en);
       }
     } else if (payload.type === "status") {
       setStatus(payload.status, payload.detail ? `${payload.status} (${payload.detail})` : payload.status);

@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://ollama:11434/v1"
     ollama_api_key: str = "ollama"          # dummy, lo exige el cliente openai
     ollama_model: str = "gemma4:e2b"        # configurable a gemma4:e4b
-    target_lang: str = "es"                 # idioma al que se traduce (es|en)
 
     ingest_protocol: str = "rtmp"           # "rtmp" | "srt" | "file" | "mic"
     ingest_host: str = "0.0.0.0"
@@ -25,6 +24,16 @@ class Settings(BaseSettings):
 
     max_queue_size: int = 2
     concurrent_inference_workers: int = 1
+    # RMS normalizado (0..1) por debajo del cual un chunk se descarta ANTES
+    # de mandarlo a Ollama, sin llamar al modelo: gemma4:e2b, ante silencio o
+    # solo ruido de piso (aire acondicionado, hum del mic), a veces devuelve
+    # una frase inventada en vez de texto vacío — cortar acá por energía es
+    # determinístico (no depende de que el modelo respete la instrucción del
+    # prompt) y de paso ahorra la llamada. 0.015 (~-36dBFS) es conservador:
+    # deja pasar voz baja, corta silencio/ruido de piso típico de un mic de
+    # laptop. Si un mic específico tiene mucho ruido de fondo, subir este
+    # valor (BABEL_SILENCE_RMS_THRESHOLD) hasta que deje de "escuchar" ruido.
+    silence_rms_threshold: float = 0.015
     # 12s se quedaba corto ni bien hay 2+ salas compitiendo por el mismo
     # Ollama a la vez (medido real: gemma4:e2b tarda 6-46s por chunk según
     # carga, incluso con GPU) — con 12s TODOS los chunks terminaban en

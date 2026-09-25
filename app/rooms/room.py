@@ -61,15 +61,26 @@ class Room:
             glossary_inline_threshold=settings.glossary_inline_threshold,
             inference_timeout=settings.inference_timeout_seconds,
             on_result=self._emit_transcript,
-            target_lang=settings.target_lang,
+            silence_rms_threshold=settings.silence_rms_threshold,
         )
         self._tasks: list[asyncio.Task] = []
         self._chunk_bytes = int(settings.chunk_seconds * settings.sample_rate * 2)
         self._restart_count = 0
         self._mic_restart_event = asyncio.Event()
+        self._ingest_task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        self._tasks.append(asyncio.create_task(self._supervised_ingest_loop(), name=f"ingest-{self.room_id}"))
+        if self.ingest.protocol == "mic":
+            self._ingest_task = asyncio.create_task(self._supervised_ingest_loop(), name=f"ingest-{self.room_id}")
+            self._tasks.append(self._ingest_task)
+        else:
+            # Las salas no-mic arrancan PAUSADAS por defecto — activarlas
+            # (POST /rooms/{id}/resume, desde el control room) es una
+            # decisión explícita, no algo que pase solo con levantar el
+            # stack. Evita que las salas de demo compitan por capacidad de
+            # inferencia con la sala mic desde el arranque mismo, sin que
+            # quien prueba tenga que pausarlas a mano primero.
+            self.status = "paused"
         for i in range(self.settings.concurrent_inference_workers):
             self._tasks.append(
                 asyncio.create_task(self.pipeline.run(self.queue, self.glossary), name=f"worker-{self.room_id}-{i}")
@@ -90,14 +101,58 @@ class Room:
 
     def transcript_as_text(self) -> str:
         """Transcript plano y legible, para descarga/accesibilidad post-charla
-        (ver GET /rooms/{id}/transcript.txt)."""
+        (ver GET /rooms/{id}/transcript.txt). Siempre en los dos idiomas
+        (ver TranscriptEvent.text_es/text_en) — (lang) marca cuál de los dos
+        fue el que efectivamente se habló."""
         lines: list[str] = []
         for event in self.transcript:
             ts_str = datetime.fromtimestamp(event.ts).strftime("%Y-%m-%d %H:%M:%S")
-            lines.append(f"[{ts_str}] ({event.lang}) {event.original_text}")
-            if event.translated_text.strip() and event.translated_text.strip() != event.original_text.strip():
-                lines.append(f"    -> {event.translated_text}")
+            lines.append(f"[{ts_str}] ({event.lang}) ES: {event.text_es}")
+            lines.append(f"{' ' * (len(ts_str) + 2)} EN: {event.text_en}")
         return "\n".join(lines) + ("\n" if lines else "")
+
+    async def pause(self) -> None:
+        """Corta la ingesta de una sala no-mic (ej. desde el control room,
+        para liberarle capacidad de inferencia a una sala mic mientras
+        alguien prueba con su micrófono) sin bajar la Room entera — los
+        workers de inferencia siguen vivos, solo se quedan sin chunks
+        nuevos. No aplica a salas mic: ya están inactivas por diseño hasta
+        que alguien graba (ver _supervised_mic_loop).
+
+        Cancela la task de `_supervised_ingest_loop` en vez de solo cortar
+        el ffmpeg y esperar a que el loop "se dé cuenta": si dependiéramos
+        de que el loop detecte el corte después del hecho, un pause()
+        seguido de un resume() casi inmediato (ej. alguien clickeando rápido
+        en el dashboard) podría correr antes de que el loop procesara el
+        pause, y el loop terminaría confundiendo el pause con una
+        desconexión real (reintentando con backoff en vez de esperar).
+        Cancelar la task es determinístico: no hay ventana de carrera."""
+        if self.ingest.protocol == "mic":
+            raise ValueError(f"[{self.room_id}] pause() no aplica a salas protocol='mic'")
+        if self._ingest_task is not None:
+            self._ingest_task.cancel()
+            try:
+                await self._ingest_task
+            except asyncio.CancelledError:
+                pass
+            if self._ingest_task in self._tasks:
+                self._tasks.remove(self._ingest_task)
+            self._ingest_task = None
+        await self.ingest.stop()
+        self.status = "paused"
+        await self.connections.broadcast(RoomStatusEvent(status="paused").model_dump())
+
+    async def resume(self) -> None:
+        """Contraparte de pause(): arranca una task nueva de
+        _supervised_ingest_loop (reconecta y vuelve a broadcastear
+        "connected", igual que al arrancar). No-op si ya está corriendo."""
+        if self.ingest.protocol == "mic":
+            raise ValueError(f"[{self.room_id}] resume() no aplica a salas protocol='mic'")
+        if self._ingest_task is not None and not self._ingest_task.done():
+            return
+        self._restart_count = 0
+        self._ingest_task = asyncio.create_task(self._supervised_ingest_loop(), name=f"ingest-{self.room_id}")
+        self._tasks.append(self._ingest_task)
 
     async def restart_mic_ingest(self) -> None:
         """Llamado por /ws/mic/{room_id} (app/main.py) al arrancar una sesión

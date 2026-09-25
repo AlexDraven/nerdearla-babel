@@ -65,7 +65,7 @@ async def test_room_not_found_returns_404(path):
 async def test_get_transcript_json_and_txt():
     room = _register_room("main")
     await room._emit_transcript(
-        TranscriptEvent(seq=1, lang="es", original_text="hola", translated_text="hola", latency_s=0.1, ts=1_700_000_000.0)
+        TranscriptEvent(seq=1, lang="es", text_es="hola", text_en="hello", latency_s=0.1, ts=1_700_000_000.0)
     )
 
     async with _client() as client:
@@ -73,9 +73,12 @@ async def test_get_transcript_json_and_txt():
         txt_resp = await client.get("/rooms/main/transcript.txt")
 
     assert json_resp.status_code == 200
-    assert json_resp.json()["events"][0]["original_text"] == "hola"
+    assert json_resp.json()["events"][0]["text_es"] == "hola"
+    assert json_resp.json()["events"][0]["text_en"] == "hello"
     assert txt_resp.status_code == 200
-    assert "(es) hola" in txt_resp.text
+    assert "(es)" in txt_resp.text
+    assert "ES: hola" in txt_resp.text
+    assert "EN: hello" in txt_resp.text
 
 
 async def test_get_transcript_txt_empty_room():
@@ -160,6 +163,57 @@ def test_mic_ws_rejects_room_not_in_mic_mode():
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/ws/mic/main"):
             pass
+
+
+async def test_pause_room_returns_404_for_missing_room():
+    async with _client() as client:
+        response = await client.post("/rooms/missing/pause")
+
+    assert response.status_code == 404
+
+
+async def test_resume_room_returns_404_for_missing_room():
+    async with _client() as client:
+        response = await client.post("/rooms/missing/resume")
+
+    assert response.status_code == 404
+
+
+async def test_pause_room_rejects_mic_room():
+    room = Room(room_id="mic", settings=Settings(ingest_protocol="mic"), glossary=None)
+    room_manager.register(room)
+
+    async with _client() as client:
+        response = await client.post("/rooms/mic/pause")
+
+    assert response.status_code == 400
+
+
+async def test_resume_room_rejects_mic_room():
+    room = Room(room_id="mic", settings=Settings(ingest_protocol="mic"), glossary=None)
+    room_manager.register(room)
+
+    async with _client() as client:
+        response = await client.post("/rooms/mic/resume")
+
+    assert response.status_code == 400
+
+
+async def test_pause_room_reports_status_in_body():
+    # NO se prueba el endpoint /resume en un happy-path acá: esta sala nunca
+    # se arrancó con room.start() (ver docstring del módulo — a propósito,
+    # para no disparar ffmpeg real), así que Room._ingest_task es None y
+    # resume() arrancaría una task nueva contra un FFmpegIngest real
+    # (protocol="rtmp"), que intentaría levantar un ffmpeg de verdad. El
+    # comportamiento de resume() ya está cubierto sin ese riesgo en
+    # tests/unit/test_room_pause_resume.py (con un ingest fake).
+    _register_room("main")
+
+    async with _client() as client:
+        response = await client.post("/rooms/main/pause")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "status": "paused"}
 
 
 async def test_reload_glossary_accepts_valid_path_within_glossary_dir():

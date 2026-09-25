@@ -2,8 +2,6 @@
   const params = new URLSearchParams(window.location.search);
   const roomId = params.get("room") || "mic";
   const wsHost = params.get("ws_host") || window.location.host || "localhost:8000";
-  const MIME_TYPE = "audio/webm;codecs=opus";
-  const RECORDER_TIMESLICE_MS = 250;
   const maxHistoryEntries = 200;
 
   const deviceSelect = document.getElementById("device-select");
@@ -16,7 +14,7 @@
   const meterFillEl = document.getElementById("level-meter-fill");
   const sentInfoEl = document.getElementById("sent-info");
 
-  let capture = null; // { stream, ws, recorder, audioCtx, analyser, meterRafId, bytesSent, chunksSent }
+  let capture = null; // { stop() } de BabelMicCapture.startCapture()
 
   function setStatus(state, label) {
     statusEl.dataset.state = state;
@@ -50,18 +48,17 @@
     }
     entry.appendChild(time);
 
-    const original = document.createElement("div");
-    original.className = "original";
-    original.textContent = payload.original_text;
-    if (payload.lang && payload.lang !== "unknown") original.lang = payload.lang;
-    entry.appendChild(original);
+    const esLine = document.createElement("div");
+    esLine.className = "original";
+    esLine.lang = "es";
+    esLine.textContent = payload.text_es;
+    entry.appendChild(esLine);
 
-    if (payload.translated_text && payload.translated_text.trim() !== payload.original_text.trim()) {
-      const translation = document.createElement("div");
-      translation.className = "translation";
-      translation.textContent = payload.translated_text;
-      entry.appendChild(translation);
-    }
+    const enLine = document.createElement("div");
+    enLine.className = "translation";
+    enLine.lang = "en";
+    enLine.textContent = payload.text_en;
+    entry.appendChild(enLine);
 
     historyEl.appendChild(entry);
     while (historyEl.children.length > maxHistoryEntries) {
@@ -103,66 +100,15 @@
     ws.addEventListener("error", () => ws.close());
   }
 
-  // --- Medidor de nivel: confirma que el mic está agarrando sonido de
-  // verdad, INDEPENDIENTE de si el WS/backend/Ollama están funcionando —
-  // primer paso para diagnosticar "no transcribe nada" (¿es el mic, la
-  // red, o el modelo?). Usa AnalyserNode (no AudioWorklet) a propósito:
-  // no carga ningún módulo aparte, así que funciona igual si la página se
-  // abrió como file:// o servida por HTTP. ---
-
-  function startLevelMeter(stream) {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const audioCtx = new AudioCtx();
-    const source = audioCtx.createMediaStreamSource(stream);
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 512;
-    source.connect(analyser);
-
-    const data = new Uint8Array(analyser.fftSize);
-    let rafId;
-
-    function tick() {
-      analyser.getByteTimeDomainData(data);
-      let sumSquares = 0;
-      for (let i = 0; i < data.length; i++) {
-        const v = (data[i] - 128) / 128;
-        sumSquares += v * v;
-      }
-      const rms = Math.sqrt(sumSquares / data.length);
-      const level = Math.min(1, rms * 4); // escalado para que un tono de voz normal se note
-      meterFillEl.style.width = `${Math.round(level * 100)}%`;
-      rafId = requestAnimationFrame(tick);
-    }
-    tick();
-
-    return {
-      audioCtx,
-      stop() {
-        if (rafId) cancelAnimationFrame(rafId);
-        audioCtx.close().catch(() => {});
-        meterFillEl.style.width = "0%";
-      },
-    };
-  }
-
   function updateSentInfo(chunksSent, bytesSent) {
     sentInfoEl.textContent = `${chunksSent} fragmento${chunksSent === 1 ? "" : "s"} enviado${chunksSent === 1 ? "" : "s"} (${(bytesSent / 1024).toFixed(0)} KB)`;
   }
 
-  // --- Captura de mic ---
-
-  async function listMicrophones() {
-    // enumerateDevices() no devuelve `label` sin permiso concedido antes —
-    // pedimos getUserMedia una vez solo para desbloquear los nombres.
-    const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    tempStream.getTracks().forEach((t) => t.stop());
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    return devices.filter((d) => d.kind === "audioinput");
-  }
+  // --- Captura de mic (BabelMicCapture, ver frontend/shared/mic-capture.js) ---
 
   async function populateDeviceList() {
     try {
-      const mics = await listMicrophones();
+      const mics = await window.BabelMicCapture.listMicrophones();
       deviceSelect.innerHTML = "";
       mics.forEach((mic, i) => {
         const option = document.createElement("option");
@@ -180,48 +126,19 @@
   }
 
   async function startCapture() {
-    const deviceId = deviceSelect.value || null;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-    });
-
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${protocol}://${wsHost}/ws/mic/${encodeURIComponent(roomId)}`);
-    ws.binaryType = "arraybuffer";
-
-    // Esperamos a que el WS esté abierto ANTES de arrancar el MediaRecorder:
-    // si no, se puede perder el primer blob (el que trae el header WebM) y
-    // ffmpeg del lado del backend nunca logra interpretar el resto.
-    await new Promise((resolve, reject) => {
-      ws.addEventListener("open", resolve, { once: true });
-      ws.addEventListener("error", () => reject(new Error("No se pudo conectar al servidor")), { once: true });
-    });
-
-    let bytesSent = 0;
-    let chunksSent = 0;
-    updateSentInfo(0, 0);
     meterRowEl.hidden = false;
 
-    const recorder = new MediaRecorder(stream, { mimeType: MIME_TYPE, audioBitsPerSecond: 32000 });
-    recorder.addEventListener("dataavailable", (e) => {
-      if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
-        ws.send(e.data);
-        chunksSent += 1;
-        bytesSent += e.data.size;
-        updateSentInfo(chunksSent, bytesSent);
-      }
-    });
-    recorder.start(RECORDER_TIMESLICE_MS);
-
-    const meter = startLevelMeter(stream);
-
-    ws.addEventListener("close", () => {
-      // si el server cierra la conexión de golpe (ej. sala inválida), volvemos
-      // al estado "sin grabar" en vez de quedar con un botón mintiendo.
-      if (capture && capture.ws === ws) stopCapture();
+    capture = await window.BabelMicCapture.startCapture({
+      wsHost,
+      roomId,
+      deviceId: deviceSelect.value || null,
+      onLevel: (level) => {
+        meterFillEl.style.width = `${Math.round(level * 100)}%`;
+      },
+      onSentInfo: updateSentInfo,
+      onClose: () => stopCapture(),
     });
 
-    capture = { stream, ws, recorder, meter };
     toggleBtn.textContent = "Parar";
     toggleBtn.dataset.recording = "true";
     deviceSelect.disabled = true;
@@ -229,13 +146,9 @@
 
   function stopCapture() {
     if (!capture) return;
-    const { stream, ws, recorder, meter } = capture;
-    if (recorder.state !== "inactive") recorder.stop();
-    stream.getTracks().forEach((t) => t.stop());
-    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
-    meter.stop();
-    meterRowEl.hidden = true;
+    capture.stop();
     capture = null;
+    meterRowEl.hidden = true;
 
     toggleBtn.textContent = "Grabar";
     toggleBtn.dataset.recording = "false";
@@ -257,7 +170,7 @@
     }
   });
 
-  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported(MIME_TYPE)) {
+  if (!window.BabelMicCapture.isSupported()) {
     unsupportedEl.hidden = false;
     toggleBtn.disabled = true;
     deviceSelect.disabled = true;
