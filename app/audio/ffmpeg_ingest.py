@@ -51,6 +51,11 @@ class FFmpegIngest:
         ]
 
     async def start(self) -> None:
+        if self._proc and self._proc.returncode is None:
+            # Defensivo: si por algún motivo start() se llama con un proceso
+            # previo todavía vivo, lo cerramos primero en vez de perder la
+            # referencia y dejarlo huérfano.
+            await self.stop()
         cmd = self._build_cmd()
         logger.info("Arrancando ffmpeg: %s", " ".join(cmd))
         self._proc = await asyncio.create_subprocess_exec(

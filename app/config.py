@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     ffmpeg_restart_backoff_seconds: float = 2.0
 
     glossary_path: str | None = None
+    glossary_dir: str = "glossaries"        # convención: <glossary_dir>/<room_id>.yaml; también
+                                             # whitelist para el `path` de POST /rooms/{id}/glossary
     glossary_inline_threshold: int = 40
 
     log_level: str = "INFO"

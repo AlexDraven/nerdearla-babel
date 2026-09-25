@@ -81,7 +81,7 @@ BABEL_INGEST_PROTOCOL=rtmp
 y reiniciá. Cada sala escucha en `BABEL_INGEST_BASE_PORT + índice` (por defecto: `main` → `1935`, `room2` → `1936`). Apuntá OBS (Configuración → Emisión → Servidor personalizado) a `rtmp://<host>:1935/live` para `main`, o probalo sin OBS con:
 
 ```bash
-./scripts/push_test_stream.sh tests/fixtures/main.wav localhost 1935
+./scripts/push_test_stream.sh tests/fixtures/sample_audio_5s.wav localhost 1935   # o tu propio audio
 ```
 
 ## Escalar a más de 2 salas

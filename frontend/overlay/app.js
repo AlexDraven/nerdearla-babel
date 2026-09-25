@@ -3,6 +3,10 @@
   const roomId = params.get("room") || "main";
   const wsHost = params.get("ws_host") || window.location.host || "localhost:8000";
   const mode = params.get("mode") === "reading" ? "reading" : "broadcast";
+  // Idioma al que traduce el backend (BABEL_TARGET_LANG, "es" por defecto) —
+  // se usa para marcar `lang` en la línea traducida y que un lector de
+  // pantalla la pronuncie con las reglas fonéticas correctas.
+  const targetLang = params.get("target_lang") || "es";
   const captionHideDelayMs = 6000;
   const maxHistoryEntries = 200;
   const fontSizeStepRem = 0.15;
@@ -29,18 +33,20 @@
 
   // --- Modo broadcast (OBS): línea flotante efímera, sin scrollback ---
 
-  function showEphemeralCaption(originalText, translatedText) {
+  function showEphemeralCaption(originalText, translatedText, lang) {
     captionEl.innerHTML = "";
 
     const originalLine = document.createElement("div");
     originalLine.className = "original";
     originalLine.textContent = originalText;
+    if (lang && lang !== "unknown") originalLine.lang = lang;
     captionEl.appendChild(originalLine);
 
     if (translatedText && translatedText.trim() !== originalText.trim()) {
       const translationLine = document.createElement("div");
       translationLine.className = "translation";
       translationLine.textContent = translatedText;
+      translationLine.lang = targetLang;
       captionEl.appendChild(translationLine);
     }
 
@@ -113,12 +119,14 @@
     const original = document.createElement("div");
     original.className = "original";
     original.textContent = payload.original_text;
+    if (payload.lang && payload.lang !== "unknown") original.lang = payload.lang;
     entry.appendChild(original);
 
     if (payload.translated_text && payload.translated_text.trim() !== payload.original_text.trim()) {
       const translation = document.createElement("div");
       translation.className = "translation";
       translation.textContent = payload.translated_text;
+      translation.lang = targetLang;
       entry.appendChild(translation);
     }
 
@@ -148,7 +156,7 @@
       if (mode === "reading") {
         appendHistoryEntry(payload);
       } else {
-        showEphemeralCaption(payload.original_text, payload.translated_text);
+        showEphemeralCaption(payload.original_text, payload.translated_text, payload.lang);
       }
     } else if (payload.type === "status") {
       setStatus(payload.status, payload.detail ? `${payload.status} (${payload.detail})` : payload.status);

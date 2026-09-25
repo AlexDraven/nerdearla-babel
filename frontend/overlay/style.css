@@ -91,7 +91,7 @@ body[data-mode="reading"][data-contrast="high"] {
 }
 
 .status[data-state="connected"] {
-  background: #16a34a; /* verde */
+  background: #15803d; /* verde, oscurecido para dar >=4.5:1 de contraste AA con texto blanco */
 }
 
 .status[data-state="reconnecting"],

@@ -45,6 +45,12 @@ async def test_transcript_as_text_formats_original_and_translation():
     assert len(lines) == 3
 
 
+async def test_transcript_as_text_empty_when_no_events():
+    room = _make_room()
+
+    assert room.transcript_as_text() == ""
+
+
 async def test_transcript_deque_caps_memory():
     room = _make_room()
     for i in range(10):

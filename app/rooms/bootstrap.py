@@ -6,9 +6,9 @@ from .room import Room
 
 
 def _resolve_glossary_path(room_id: str, settings: Settings) -> str | None:
-    """Convención: glossaries/<room_id>.yaml si existe; si no, el glosario
+    """Convención: <glossary_dir>/<room_id>.yaml si existe; si no, el glosario
     global (BABEL_GLOSSARY_PATH) compartido por todas las salas."""
-    per_room = Path("glossaries") / f"{room_id}.yaml"
+    per_room = Path(settings.glossary_dir) / f"{room_id}.yaml"
     if per_room.exists():
         return str(per_room)
     return settings.glossary_path

@@ -23,6 +23,15 @@ class Room:
     vs. N contenedores del backend, uno por sala)."""
 
     def __init__(self, room_id: str, settings: Settings, glossary: Glossary | None):
+        if settings.ingest_protocol == "file" and not settings.ingest_file_path:
+            # Falla acá, al construir la Room (arranque del proceso), en vez
+            # de en cada vuelta de _supervised_ingest_loop — si no, el error
+            # queda enmascarado como un reintento silencioso cada <=30s.
+            raise ValueError(
+                f"[{room_id}] ingest_protocol='file' requiere ingest_file_path "
+                "(revisar build_rooms()/demo_audio_dir, o pasarlo explícito)"
+            )
+
         self.room_id = room_id
         self.settings = settings
         self.glossary = glossary
@@ -67,7 +76,10 @@ class Room:
     async def stop(self) -> None:
         for t in self._tasks:
             t.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        results = await asyncio.gather(*self._tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error("[%s] task terminó con una excepción durante el shutdown", self.room_id, exc_info=result)
         await self.ingest.stop()
 
     async def _emit_transcript(self, event: TranscriptEvent) -> None:

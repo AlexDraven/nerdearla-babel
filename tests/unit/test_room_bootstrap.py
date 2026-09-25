@@ -37,3 +37,47 @@ def test_build_rooms_file_mode_resolves_demo_audio_fallback():
         # ninguna sala tiene un tests/fixtures/<room_id>.wav propio todavía,
         # así que ambas deben caer al fixture sintético compartido.
         assert room.settings.ingest_file_path == "tests/fixtures/sample_audio_5s.wav"
+
+
+def test_build_rooms_file_mode_prefers_per_room_audio_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    fixtures_dir = tmp_path / "fixtures"
+    fixtures_dir.mkdir()
+    (fixtures_dir / "main.wav").write_bytes(b"RIFF....")
+    (fixtures_dir / "sample_audio_5s.wav").write_bytes(b"RIFF....")
+
+    settings = Settings(room_ids="main,room2", ingest_protocol="file", demo_audio_dir="fixtures")
+    rooms = build_rooms(settings)
+
+    by_id = {r.room_id: r for r in rooms}
+    # "main" tiene su propio archivo -> se usa ese, no el fallback compartido.
+    assert by_id["main"].settings.ingest_file_path == "fixtures/main.wav"
+    # "room2" no tiene archivo propio -> cae al fallback compartido.
+    assert by_id["room2"].settings.ingest_file_path == "fixtures/sample_audio_5s.wav"
+
+
+def test_build_rooms_prefers_per_room_glossary_over_global(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    glossaries_dir = tmp_path / "glossaries"
+    glossaries_dir.mkdir()
+    (glossaries_dir / "main.yaml").write_text(
+        'talk_title: "Charla de main"\nentries: []\n', encoding="utf-8"
+    )
+    global_glossary = tmp_path / "global.yaml"
+    global_glossary.write_text('talk_title: "Charla global"\nentries: []\n', encoding="utf-8")
+
+    settings = Settings(
+        room_ids="main,room2",
+        ingest_protocol="rtmp",
+        glossary_dir="glossaries",
+        glossary_path=str(global_glossary),
+    )
+    rooms = build_rooms(settings)
+
+    by_id = {r.room_id: r for r in rooms}
+    # "main" tiene glosario propio -> se usa ese en vez del global.
+    assert by_id["main"].glossary is not None
+    assert by_id["main"].glossary.talk_title == "Charla de main"
+    # "room2" no tiene glosario propio -> cae al global.
+    assert by_id["room2"].glossary is not None
+    assert by_id["room2"].glossary.talk_title == "Charla global"

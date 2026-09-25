@@ -23,9 +23,13 @@
   function createCard(roomId) {
     const card = document.createElement("article");
     card.className = "room-card";
+    // roomId NO se interpola en el innerHTML (aunque hoy solo puede venir de
+    // BABEL_ROOM_IDS, controlado por quien despliega) — se setea después via
+    // textContent, mismo patrón que el resto del código usa para texto que
+    // viene del backend.
     card.innerHTML = `
       <div class="room-card__header">
-        <span class="room-card__title">${roomId}</span>
+        <span class="room-card__title"></span>
         <span class="status-dot" data-status="connecting">conectando</span>
       </div>
       <div class="room-card__metrics">
@@ -41,6 +45,7 @@
         <a target="_blank" rel="noopener" href="${httpUrl(`/rooms/${encodeURIComponent(roomId)}/transcript`)}">Transcript (json)</a>
       </div>
     `;
+    card.querySelector(".room-card__title").textContent = roomId;
     roomsEl.appendChild(card);
 
     return {
@@ -57,7 +62,7 @@
 
     emptyStateEl.hidden = true;
     const els = createCard(roomId);
-    const state = { els, latencies: [], ws: null };
+    const state = { els, latencies: [], ws: null, reconnectDelayMs: 1000 };
     rooms.set(roomId, state);
     connectWs(roomId, state);
     return state;
@@ -90,9 +95,15 @@
     }
   }
 
+  const maxReconnectDelayMs = 15000;
+
   function connectWs(roomId, state) {
     const ws = new WebSocket(wsUrl(roomId));
     state.ws = ws;
+
+    ws.addEventListener("open", () => {
+      state.reconnectDelayMs = 1000;
+    });
 
     ws.addEventListener("message", (event) => {
       let payload;
@@ -111,7 +122,8 @@
     });
 
     ws.addEventListener("close", () => {
-      setTimeout(() => connectWs(roomId, state), 2000);
+      setTimeout(() => connectWs(roomId, state), state.reconnectDelayMs);
+      state.reconnectDelayMs = Math.min(state.reconnectDelayMs * 2, maxReconnectDelayMs);
     });
     ws.addEventListener("error", () => ws.close());
   }

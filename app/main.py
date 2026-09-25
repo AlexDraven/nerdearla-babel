@@ -1,12 +1,14 @@
 import logging
 from contextlib import asynccontextmanager
 
+import yaml
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
+from pydantic import ValidationError
 
 from .config import get_settings
-from .glossary.loader import load_glossary_from_yaml
+from .glossary.loader import load_glossary_from_yaml, resolve_within
 from .rooms.bootstrap import build_rooms
 from .rooms.room_manager import RoomManager
 
@@ -109,11 +111,26 @@ async def get_glossary(room_id: str):
 @app.post("/rooms/{room_id}/glossary")
 async def reload_glossary(room_id: str, path: str):
     """Control-plane: permite cambiar el glosario de la charla en vivo sin
-    reiniciar el contenedor (ej. entre charla y charla del mismo evento)."""
+    reiniciar el contenedor (ej. entre charla y charla del mismo evento).
+
+    `path` es el nombre de archivo DENTRO de `settings.glossary_dir` (no una
+    ruta arbitraria del filesystem) — este endpoint es de red/sin auth, así
+    que se resuelve con whitelist de directorio para evitar path traversal.
+    """
     room = room_manager.get(room_id)
     if room is None:
         raise HTTPException(404, "sala no encontrada")
-    room.glossary = load_glossary_from_yaml(path)
+
+    settings = get_settings()
+    try:
+        safe_path = resolve_within(settings.glossary_dir, path)
+        glossary = load_glossary_from_yaml(safe_path)
+    except ValueError as exc:
+        raise HTTPException(400, f"path de glosario inválido: {exc}") from exc
+    except (OSError, yaml.YAMLError, ValidationError) as exc:
+        raise HTTPException(400, f"no se pudo cargar el glosario: {exc}") from exc
+
+    room.glossary = glossary
     return {"ok": True, "terms": len(room.glossary.entries)}
 
 

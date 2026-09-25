@@ -4,6 +4,8 @@ Solución open source self-hosted de accesibilidad para conferencias de tecnolog
 
 Repo greenfield: este documento es el blueprint técnico para implementarlo desde cero.
 
+> **Nota**: las secciones 1-8 documentan el diseño original (una sola sala, salida `{"lang","text"}`). La sección 9 resume cómo cambió para la Vibeathon (multi-sala real por defecto, salida dual `original_text`/`translated_text`, modo de ingesta por archivo, transcript exportable, dashboard). Los snippets de las secciones 1-8 no se reescribieron para no duplicar esfuerzo bajo presión de tiempo — **el código en `app/` es siempre la fuente de verdad**, no estos bloques de código.
+
 ## 0. Decisiones de diseño clave (resumen ejecutivo)
 
 - **Ingesta de audio: FFmpeg como servidor RTMP/SRT** (`-listen 1` / `mode=listener`), recibiendo el push directo de OBS o de la consola de sonido de la sala. No hay WebSocket de ingesta de audio — el protocolo que ya habla OBS es RTMP/SRT, así que no tiene sentido agregar un cliente capturador intermedio en el navegador para el MVP.
