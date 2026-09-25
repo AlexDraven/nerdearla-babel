@@ -12,13 +12,10 @@ services:
       OLLAMA_NUM_PARALLEL: 2
       OLLAMA_KEEP_ALIVE: 30m
       OLLAMA_MAX_LOADED_MODELS: 1
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # Sin reserva de GPU acá a propósito: así `docker compose up` funciona
+    # out-of-the-box en cualquier máquina (corre en CPU, más lento). Para
+    # acelerar con GPU NVIDIA, sumar el override:
+    #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 15s
@@ -54,7 +51,8 @@ services:
       # Todas via ${VAR:-default}: así lo que se edite en .env realmente pega
       # cuando se corre `docker compose up` (antes varias quedaban
       # hardcodeadas acá y .env no tenía ningún efecto sobre ellas).
-      BABEL_ROOM_IDS: ${BABEL_ROOM_IDS:-main,room2}   # 2 salas simultáneas por defecto — ver docs/SCALING.md para más
+      BABEL_ROOM_IDS: ${BABEL_ROOM_IDS:-main,room2,mic}  # 2 salas de demo + 1 de micrófono en vivo — ver docs/SCALING.md
+      BABEL_MIC_ROOM_IDS: ${BABEL_MIC_ROOM_IDS:-mic}     # ids que fuerzan modo micrófono (frontend/mic/), sin importar BABEL_INGEST_PROTOCOL
       BABEL_OLLAMA_BASE_URL: ${BABEL_OLLAMA_BASE_URL:-http://ollama:11434/v1}
       BABEL_OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:e2b}
       BABEL_TARGET_LANG: ${BABEL_TARGET_LANG:-es}

@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from .config import get_settings
 from .glossary.loader import load_glossary_from_yaml, resolve_within
+from .models.schemas import RoomStatusEvent
 from .rooms.bootstrap import build_rooms
 from .rooms.room_manager import RoomManager
 
@@ -27,6 +28,8 @@ async def lifespan(app: FastAPI):
         await room.start()
         if room.settings.ingest_protocol == "file":
             source = room.ingest.file_path
+        elif room.settings.ingest_protocol == "mic":
+            source = "esperando a que alguien grabe por /ws/mic/{id}"
         else:
             source = f"{room.settings.ingest_host}:{room.settings.ingest_port}"
         logger.info("Sala '%s' iniciada (%s -> %s)", room.room_id, room.settings.ingest_protocol, source)
@@ -60,7 +63,12 @@ async def list_rooms():
     """Control room: lista todas las salas activas con su estado — prueba
     que hay >=2 sesiones corriendo en simultáneo (ver frontend/dashboard/)."""
     return [
-        {"room_id": room.room_id, "status": room.status, "queue_size": room.queue.qsize()}
+        {
+            "room_id": room.room_id,
+            "status": room.status,
+            "queue_size": room.queue.qsize(),
+            "protocol": room.ingest.protocol,
+        }
         for room in room_manager.list()
     ]
 
@@ -150,6 +158,31 @@ async def viewer_ws(websocket: WebSocket, room_id: str):
         pass
     finally:
         await room.connections.disconnect(websocket)
+
+
+@app.websocket("/ws/mic/{room_id}")
+async def mic_ingest_ws(websocket: WebSocket, room_id: str):
+    """Canal de ENTRADA: recibe frames binarios WebM/Opus desde el navegador
+    de quien esté grabando (MediaRecorder, ver frontend/mic/) y los empuja
+    al ffmpeg de esa sala. Rechaza si la sala no existe o no está en modo
+    'mic', para no corromper por error el ffmpeg de una sala file/rtmp/srt."""
+    room = room_manager.get(room_id)
+    if room is None or room.ingest.protocol != "mic":
+        await websocket.close(code=4404)
+        return
+
+    await websocket.accept()
+    await room.restart_mic_ingest()
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            await room.ingest.write(data)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await room.ingest.stop()
+        room.status = "waiting_for_mic"
+        await room.connections.broadcast(RoomStatusEvent(status="waiting_for_mic").model_dump())
 
 
 if __name__ == "__main__":

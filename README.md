@@ -17,29 +17,49 @@ Más allá del MVP (transcripción + traducción + multi-sala), 4 cosas que prob
 
 ## Qué hace
 
-- Recibe audio en vivo (RTMP/SRT desde OBS o una consola de sonido) **o** un archivo de audio local (para probar sin infraestructura).
+- Recibe audio en vivo desde **tu propio micrófono** (eligiendo el dispositivo desde el navegador), desde RTMP/SRT (OBS o una consola de sonido), **o** desde un archivo de audio local (para probar sin infraestructura).
 - Transcribe en tiempo real en el idioma original (español o inglés).
 - Traduce en tiempo real a español (configurable a cualquier otro idioma objetivo — ver [`.env.example`](.env.example)).
 - Muestra los subtítulos en un overlay web (usable como browser source de OBS, o en cualquier navegador).
-- Procesa **2 sesiones/salas en simultáneo por defecto**, con arquitectura lista para escalar a más.
+- Procesa **3 sesiones/salas en simultáneo por defecto** (2 de demo + 1 de micrófono en vivo), con arquitectura lista para escalar a más.
 
 ## Sin credenciales externas
 
-Todo el procesamiento (audio → transcripción → traducción) corre localmente vía [Ollama](https://ollama.com) + el modelo `gemma4:e2b` (Gemma 4, con soporte nativo de audio). **No hace falta ninguna API key ni cuenta externa.** Lo único que se necesita es:
+Todo el procesamiento (audio → transcripción → traducción) corre localmente vía [Ollama](https://ollama.com) + el modelo `gemma4:e2b` (Gemma 4, con soporte nativo de audio). **No hace falta ninguna API key ni cuenta externa.** Lo único que se necesita es Docker + Docker Compose v2 — no hace falta GPU (ver nota abajo).
 
-- Docker + Docker Compose v2.
-- GPU NVIDIA (recomendado para latencia baja; también corre en CPU, más lento — ver [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)).
+### Nota sobre GPU — importante para que la transcripción responda rápido
+
+`docker compose up` (el comando de abajo, tal cual) corre **en cualquier máquina**, con o sin GPU — nunca falla. Pero la inferencia en CPU es lenta de verdad (un solo chunk de audio puede tardar varios minutos, no segundos) — para una demo en vivo hace falta GPU. Elegí según tu hardware:
+
+- **🍎 Mac (con o sin Apple Silicon) → Ollama nativo, recomendado.** Docker Desktop en Mac **no puede** pasarle la GPU del sistema a un contenedor Linux — así que Ollama corriendo *dentro* de Docker en Mac siempre usa CPU, sin excepción. La solución es instalar Ollama nativo (no en Docker) — usa la GPU del sistema (Metal) automáticamente — y solo el backend en Docker:
+  ```bash
+  # 1. Instalar Ollama nativo: https://ollama.com/download
+  ollama pull gemma4:e2b
+  ./scripts/check_local_ollama.sh                          # valida que está todo listo
+  docker compose -f docker-compose.local-ollama.yml up -d --build
+  ```
+  Importante: si ya tenías el stack default (`docker-compose.yml`) corriendo, bajalo primero con `docker compose down` — su servicio `ollama` también ocupa el puerto 11434, y si sigue arriba el backend termina hablándole a ese (el lento) en vez de al nativo, sin ningún error visible.
+
+- **🐧 Linux con GPU NVIDIA** (ej. la VPS real de producción) → sumar el override de GPU:
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+  ```
+  Requiere el [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) instalado.
+
+- **Ningún GPU disponible** → el comando default de abajo funciona igual, pero esperá que cada chunk tarde bastante — no es la mejor forma de mostrar el proyecto en vivo.
 
 ## Quickstart (probar en 2 comandos)
 
 ```bash
-cp .env.example .env
+cp .env.example .env   # opcional, .env.example ya trae defaults razonables
 docker compose up -d --build
 ```
 
-El servicio `ollama-init` descarga `gemma4:e2b` automáticamente la primera vez (puede tardar unos minutos). Cuando el backend esté arriba (`docker compose logs -f backend`), ya hay **2 salas corriendo en simultáneo** (`main` y `room2`), cada una en loop sobre un archivo de audio de `tests/fixtures/` (modo `file`, sin necesidad de OBS ni ningún push manual).
+El backend (FastAPI + las 3 salas) queda arriba en segundos — **no hace falta esperar nada** para ver que el sistema está vivo y procesando en simultáneo (`docker compose logs -f backend`, o directo el control room, un poco más abajo). En paralelo, el servicio `ollama-init` descarga `gemma4:e2b` (**~7 GB**, la primera vez) — hasta que termine, cada chunk de audio loguea un error 404 controlado ("model not found") en vez de trabar nada; apenas termina la descarga, los subtítulos con contenido real empiezan a aparecer solos, sin reiniciar nada. En una conexión hogareña normal puede tardar bastante más que "un par de minutos" — para no depender de esa espera al mostrar el proyecto, conviene dejar `docker compose up -d --build` corriendo un rato antes de grabar/demostrar (`docker compose logs -f ollama-init` para ver el progreso de la descarga).
 
-La forma más rápida de ver que las 2 salas están vivas y en paralelo es el **control room**:
+Ya con eso hay **3 salas corriendo en simultáneo**: `main` y `room2` en loop sobre un archivo de audio de `tests/fixtures/` (modo `file`, sin necesidad de OBS ni ningún push manual), y `mic` esperando a que alguien hable a su propio micrófono (ver la sección siguiente).
+
+La forma más rápida de ver que las 3 salas están vivas y en paralelo es el **control room**:
 
 ```bash
 open "frontend/dashboard/index.html?api_host=localhost:8000"   # macOS
@@ -62,12 +82,28 @@ curl http://localhost:8000/rooms                      # lista todas las salas ac
 curl http://localhost:8000/rooms/main/transcript.txt   # transcript acumulado de la sala "main"
 ```
 
-## Probar con tus propios audios
+## Probar con tu propio micrófono
 
-El repo incluye `tests/fixtures/sample_audio_5s.wav` (un tono sintético, solo para validar la plomería — **no** genera una transcripción con sentido). Para una demo real:
+La sala `mic` (una de las 3 que levanta el stack por defecto) está pensada exactamente para esto — nadie tiene que tocar audio pregrabado ni configurar nada.
 
-1. Conseguí 1-2 clips cortos de habla real (por ejemplo, de una charla vieja de Nerdearla en YouTube — uno en español y otro en inglés, para mostrar ambos casos: transcripción directa vs. transcripción + traducción).
-2. Guardalos como `tests/fixtures/main.wav` y `tests/fixtures/room2.wav` (formato WAV; si no lo tenés en WAV, `ffmpeg -i entrada.mp3 tests/fixtures/main.wav` lo convierte).
+```bash
+# recomendado: servir frontend/ por HTTP (evita cualquier duda de permisos
+# de mic en un navegador que no es el tuyo — file:// también debería andar,
+# pero esta es la opción más robusta para probar en vivo frente a alguien)
+python3 -m http.server 8080 --directory frontend
+open "http://localhost:8080/mic/index.html?ws_host=localhost:8000"
+```
+
+En la página: el navegador pide permiso de micrófono, elegís el dispositivo de entrada en el desplegable (sirve para elegir entre el mic integrado y uno externo/headset), apretás **Grabar**, hablás — y la transcripción/traducción aparece en la misma página en vivo. Funciona en Chrome, Edge y Firefox (usa `MediaRecorder` con `audio/webm;codecs=opus`; si el navegador no lo soporta —ej. Safari viejo— la página lo avisa en vez de fallar en silencio).
+
+## Audio de demo incluido / usar el tuyo propio
+
+El repo ya incluye audio de habla real para las 2 salas de demo (`main`/`room2`): `tests/fixtures/main.wav` (charla en español) y `tests/fixtures/room2.wav` (charla en inglés, para mostrar el caso transcripción + traducción) — no hace falta ningún paso extra, se usan solos apenas se levanta el stack. `tests/fixtures/sample_audio_5s.wav` (un tono sintético) queda solo como fixture de los tests automatizados.
+
+Para reemplazarlos por tus propios clips:
+
+1. Conseguí 1-2 clips cortos de habla real (por ejemplo, de una charla vieja de Nerdearla en YouTube).
+2. Sobreescribí `tests/fixtures/main.wav` y/o `tests/fixtures/room2.wav` (formato WAV; si no lo tenés en WAV, `ffmpeg -i entrada.mp3 tests/fixtures/main.wav` lo convierte).
 3. `docker compose restart backend` — cada sala detecta el archivo por convención (`<room_id>.wav`) sin tocar código ni config.
 
 ## Usar con un stream real (OBS / consola de sonido)
@@ -84,15 +120,15 @@ y reiniciá. Cada sala escucha en `BABEL_INGEST_BASE_PORT + índice` (por defect
 ./scripts/push_test_stream.sh tests/fixtures/sample_audio_5s.wav localhost 1935   # o tu propio audio
 ```
 
-## Escalar a más de 2 salas
+## Escalar a más de 3 salas
 
 Alcanza con editar una variable de entorno — no hace falta tocar código:
 
 ```
-BABEL_ROOM_IDS=main,room2,room3,room4
+BABEL_ROOM_IDS=main,room2,mic,room4,room5
 ```
 
-Cada sala nueva toma el siguiente puerto de ingesta automáticamente y comparte la misma instancia de Ollama (con `OLLAMA_MAX_LOADED_MODELS=1`, todas usan el mismo modelo cargado en memoria, sin duplicar VRAM). Este modo ("multi-room en un proceso") sirve mientras un solo backend/GPU dé abasto. Para escalar más allá de eso en producción real (aislar recursos por sala, distribuir entre varias GPUs/VPS), ver [`docs/SCALING.md`](docs/SCALING.md).
+Cada sala nueva de tipo `file`/`rtmp` toma el siguiente puerto de ingesta automáticamente y comparte la misma instancia de Ollama (con `OLLAMA_MAX_LOADED_MODELS=1`, todas usan el mismo modelo cargado en memoria, sin duplicar VRAM). Para agregar otra sala de micrófono (ej. dos jurados grabando a la vez), sumar su id también a `BABEL_MIC_ROOM_IDS` (ej. `BABEL_MIC_ROOM_IDS=mic,mic2`) y abrir `frontend/mic/index.html?room=mic2`. Este modo ("multi-room en un proceso") sirve mientras un solo backend/GPU dé abasto. Para escalar más allá de eso en producción real (aislar recursos por sala, distribuir entre varias GPUs/VPS), ver [`docs/SCALING.md`](docs/SCALING.md).
 
 ## Arquitectura
 
@@ -114,6 +150,7 @@ Requiere `ffmpeg` instalado localmente (`brew install ffmpeg` / `apt install ffm
 app/                backend FastAPI (audio, glosario, inferencia, salas, websockets)
 frontend/overlay/    overlay de subtítulos — modo OBS (?mode=broadcast, default) o accesible (?mode=reading)
 frontend/dashboard/  control room: todas las salas activas, en vivo, en una sola pantalla
+frontend/mic/        grabar con tu propio micrófono (elegir dispositivo) y ver la transcripción en vivo
 glossaries/          glosarios técnicos por charla (YAML) — glossaries/<room_id>.yaml
 tests/fixtures/      audios de demo (uno por sala, por convención <room_id>.wav)
 scripts/             utilidades (pull de modelo, push de stream de prueba)

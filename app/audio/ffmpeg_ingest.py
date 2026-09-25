@@ -39,6 +39,14 @@ class FFmpegIngest:
             # -stream_loop -1: repite el archivo indefinidamente (demo sin intervención manual).
             loop_args = ["-stream_loop", "-1"] if self.loop else []
             input_args = ["-re", *loop_args, "-i", self.file_path]
+        elif self.protocol == "mic":
+            # El navegador (MediaRecorder) empuja WebM/Opus por un WebSocket
+            # de ingesta (ver /ws/mic/{room_id} en app/main.py), que lo vuelca
+            # a nuestro stdin. -f webm evita el autodetect — no hace falta
+            # para que funcione (Matroska/WebM soporta streaming nativamente
+            # y, al ser audio-only con Opus, no hay dependencia de keyframes
+            # como sí la habría con video), pero evita cualquier ambigüedad.
+            input_args = ["-f", "webm", "-i", "pipe:0"]
         else:
             raise ValueError(f"Protocolo de ingesta no soportado: {self.protocol}")
 
@@ -58,10 +66,24 @@ class FFmpegIngest:
             await self.stop()
         cmd = self._build_cmd()
         logger.info("Arrancando ffmpeg: %s", " ".join(cmd))
+        stdin = asyncio.subprocess.PIPE if self.protocol == "mic" else None
         self._proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            *cmd, stdin=stdin, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         asyncio.create_task(self._drain_stderr())
+
+    async def write(self, data: bytes) -> None:
+        """Escribe bytes al stdin de ffmpeg (protocol='mic'). No lanza si el
+        proceso ya murió o el pipe está roto — el WS de ingesta no se tiene
+        que caer por un problema transitorio de ffmpeg; el frame se descarta
+        y la próxima sesión de grabación (restart_mic_ingest) lo resuelve."""
+        if not self._proc or not self._proc.stdin or self._proc.returncode is not None:
+            return
+        try:
+            self._proc.stdin.write(data)
+            await self._proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            logger.warning("[ffmpeg mic] pipe de stdin roto al escribir")
 
     async def _drain_stderr(self) -> None:
         assert self._proc and self._proc.stderr

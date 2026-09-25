@@ -1,0 +1,63 @@
+# Standalone (NO se combina con `-f docker-compose.yml -f ...`, se usa solo)
+# para el caso donde Docker no le puede dar GPU a Ollama pero el host sí
+# tiene una — el caso típico es Mac: Docker Desktop en Mac no puede pasarle
+# la GPU de Apple Silicon a un contenedor Linux, así que Ollama corriendo
+# DENTRO de Docker en Mac siempre usa CPU (lento — una sola inferencia puede
+# tardar varios minutos). Ollama corriendo NATIVO en el host sí usa la GPU
+# del sistema automáticamente (Metal en Mac, CUDA si hay GPU NVIDIA), sin
+# configuración extra de nuestra parte.
+#
+# Requiere Ollama nativo instalado y corriendo en el host, con el modelo ya
+# pulleado (usa la GPU del sistema automáticamente):
+#
+#   ollama pull gemma4:e2b
+#   ./scripts/check_local_ollama.sh          # opcional, valida que está listo
+#   docker compose -f docker-compose.local-ollama.yml up -d --build
+#
+# Solo levanta el `backend` — no hacen falta los servicios ollama/ollama-init
+# de docker-compose.yml, el Ollama real corre nativo en el host.
+#
+# IMPORTANTE: si docker-compose.yml (el stack default) está corriendo, bajalo
+# primero (`docker compose down`) — su servicio `ollama` también ocupa el
+# puerto 11434, así que si queda arriba, este backend va a terminar
+# hablándole a ESE Ollama (el lento, en Docker) sin ningún error visible,
+# en vez de al nativo. `./scripts/check_local_ollama.sh` no puede distinguir
+# ambos casos por sí solo — confirmá con `docker ps` que no haya un
+# contenedor `babel-ollama` corriendo antes de levantar este archivo.
+services:
+  backend:
+    build: .
+    container_name: babel-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"        # HTTP + WS viewers/control
+      - "1935:1935"        # RTMP ingest sala 1 (solo se usa si BABEL_INGEST_PROTOCOL=rtmp)
+      - "1936:1936"        # RTMP ingest sala 2
+      - "9998:9998/udp"    # SRT ingest alternativo
+    environment:
+      BABEL_ROOM_IDS: ${BABEL_ROOM_IDS:-main,room2,mic}
+      BABEL_MIC_ROOM_IDS: ${BABEL_MIC_ROOM_IDS:-mic}
+      # Única diferencia real con docker-compose.yml: apunta al Ollama nativo
+      # del host (host.docker.internal), no al contenedor `ollama`.
+      BABEL_OLLAMA_BASE_URL: ${BABEL_OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      BABEL_OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:e2b}
+      BABEL_TARGET_LANG: ${BABEL_TARGET_LANG:-es}
+      BABEL_INGEST_PROTOCOL: ${BABEL_INGEST_PROTOCOL:-file}
+      BABEL_INGEST_HOST: ${BABEL_INGEST_HOST:-0.0.0.0}
+      BABEL_INGEST_BASE_PORT: ${BABEL_INGEST_BASE_PORT:-1935}
+      BABEL_CHUNK_SECONDS: ${BABEL_CHUNK_SECONDS:-4}
+      BABEL_MAX_QUEUE_SIZE: ${BABEL_MAX_QUEUE_SIZE:-2}
+      BABEL_GLOSSARY_PATH: ${BABEL_GLOSSARY_PATH:-/app/glossaries/example-charla-kubernetes.yaml}
+      BABEL_LOG_LEVEL: ${BABEL_LOG_LEVEL:-INFO}
+    volumes:
+      - ./glossaries:/app/glossaries:ro
+      - ./tests/fixtures:/app/tests/fixtures:ro
+    extra_hosts:
+      # host.docker.internal ya lo resuelve solo Docker Desktop (Mac/Windows);
+      # esta línea es la que lo habilita en Docker Engine nativo de Linux.
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5

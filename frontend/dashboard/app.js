@@ -20,13 +20,17 @@
     return `${protocol}://${apiHost}/ws/room/${encodeURIComponent(roomId)}`;
   }
 
-  function createCard(roomId) {
+  function createCard(roomId, protocol) {
     const card = document.createElement("article");
     card.className = "room-card";
     // roomId NO se interpola en el innerHTML (aunque hoy solo puede venir de
     // BABEL_ROOM_IDS, controlado por quien despliega) — se setea después via
     // textContent, mismo patrón que el resto del código usa para texto que
     // viene del backend.
+    const micLink =
+      protocol === "mic"
+        ? `<a target="_blank" rel="noopener" href="../mic/index.html?room=${encodeURIComponent(roomId)}&ws_host=${encodeURIComponent(apiHost)}">🎙️ Grabar</a>`
+        : "";
     card.innerHTML = `
       <div class="room-card__header">
         <span class="room-card__title"></span>
@@ -40,6 +44,7 @@
         <div class="placeholder">Esperando el primer fragmento transcripto...</div>
       </div>
       <div class="room-card__links">
+        ${micLink}
         <a target="_blank" rel="noopener" href="../overlay/index.html?room=${encodeURIComponent(roomId)}&ws_host=${encodeURIComponent(apiHost)}&mode=reading">Vista de lectura</a>
         <a target="_blank" rel="noopener" href="${httpUrl(`/rooms/${encodeURIComponent(roomId)}/transcript.txt`)}">Transcript (txt)</a>
         <a target="_blank" rel="noopener" href="${httpUrl(`/rooms/${encodeURIComponent(roomId)}/transcript`)}">Transcript (json)</a>
@@ -57,11 +62,11 @@
     };
   }
 
-  function ensureRoom(roomId) {
+  function ensureRoom(roomId, protocol) {
     if (rooms.has(roomId)) return rooms.get(roomId);
 
     emptyStateEl.hidden = true;
-    const els = createCard(roomId);
+    const els = createCard(roomId, protocol);
     const state = { els, latencies: [], ws: null, reconnectDelayMs: 1000 };
     rooms.set(roomId, state);
     connectWs(roomId, state);
@@ -144,7 +149,7 @@
     }
 
     for (const room of roomList) {
-      const state = ensureRoom(room.room_id);
+      const state = ensureRoom(room.room_id, room.protocol);
       state.els.queueMetric.textContent = String(room.queue_size);
       // el WS ya actualiza el status más rápido, pero el poll es el fallback
       // por si la conexión WS todavía no abrió.

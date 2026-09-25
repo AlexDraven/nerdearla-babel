@@ -65,6 +65,7 @@ class Room:
         self._tasks: list[asyncio.Task] = []
         self._chunk_bytes = int(settings.chunk_seconds * settings.sample_rate * 2)
         self._restart_count = 0
+        self._mic_restart_event = asyncio.Event()
 
     async def start(self) -> None:
         self._tasks.append(asyncio.create_task(self._supervised_ingest_loop(), name=f"ingest-{self.room_id}"))
@@ -97,7 +98,22 @@ class Room:
                 lines.append(f"    -> {event.translated_text}")
         return "\n".join(lines) + ("\n" if lines else "")
 
+    async def restart_mic_ingest(self) -> None:
+        """Llamado por /ws/mic/{room_id} (app/main.py) al arrancar una sesión
+        de grabación nueva. Arranca un ffmpeg limpio (start() ya mata
+        cualquier proceso previo) y despierta a _supervised_mic_loop para
+        que retome la lectura de stdout, SIN que el loop reintente por su
+        cuenta — ver la nota grande en _supervised_mic_loop."""
+        if self.ingest.protocol != "mic":
+            raise ValueError(f"[{self.room_id}] restart_mic_ingest solo aplica a protocol='mic'")
+        await self.ingest.start()
+        self._mic_restart_event.set()
+
     async def _supervised_ingest_loop(self) -> None:
+        if self.ingest.protocol == "mic":
+            await self._supervised_mic_loop()
+            return
+
         backoff = self.settings.ffmpeg_restart_backoff_seconds
         while True:
             try:
@@ -118,6 +134,33 @@ class Room:
                 RoomStatusEvent(status="reconnecting", detail=f"intento {self._restart_count}").model_dump()
             )
             await asyncio.sleep(min(backoff * self._restart_count, 30))
+
+    async def _supervised_mic_loop(self) -> None:
+        """A diferencia de rtmp/srt/file, acá NO reintentamos con backoff por
+        nuestra cuenta. Motivo: cada sesión de grabación del navegador manda
+        un header WebM nuevo (MediaRecorder), así que reusar/reiniciar el
+        ffmpeg sin que haya una sesión nueva escribiéndole (con un header
+        fresco) lo dejaría esperando datos que nunca van a llegar — y peor,
+        si reiniciáramos mientras el WS de ingesta SÍ está escribiendo, le
+        mataríamos el proceso por debajo sin que el navegador se entere
+        (la demo "funciona" 2 segundos y se queda muda, sin error visible).
+        Por eso el único que llama ingest.start()/stop() acá es
+        restart_mic_ingest(), disparado por /ws/mic/{room_id}."""
+        self.status = "waiting_for_mic"
+        while True:
+            await self._mic_restart_event.wait()
+            self._mic_restart_event.clear()
+            try:
+                self.status = "connected"
+                await self.connections.broadcast(RoomStatusEvent(status="connected").model_dump())
+                await self._produce()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("[%s] error en ingesta de micrófono", self.room_id)
+
+            self.status = "waiting_for_mic"
+            await self.connections.broadcast(RoomStatusEvent(status="waiting_for_mic").model_dump())
 
     async def _produce(self) -> None:
         seq = 0

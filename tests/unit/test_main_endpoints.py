@@ -4,6 +4,8 @@ de la app real, que levantaría procesos ffmpeg de verdad."""
 
 import httpx
 import pytest
+from fastapi import WebSocketDisconnect
+from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.glossary.models import Glossary, GlossaryEntry
@@ -143,6 +145,21 @@ async def test_reload_glossary_rejects_malformed_yaml(tmp_path, monkeypatch):
         response = await client.post("/rooms/main/glossary", params={"path": "broken.yaml"})
 
     assert response.status_code == 400
+
+
+def test_mic_ws_rejects_missing_room():
+    client = TestClient(app)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/mic/no-existe"):
+            pass
+
+
+def test_mic_ws_rejects_room_not_in_mic_mode():
+    _register_room("main")  # protocol="rtmp", no "mic"
+    client = TestClient(app)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/mic/main"):
+            pass
 
 
 async def test_reload_glossary_accepts_valid_path_within_glossary_dir():

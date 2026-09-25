@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>nerdearla-babel — probar con tu micrófono</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Probá con tu propio micrófono</h1>
+    <p class="subtitle">
+      Elegí tu dispositivo de entrada, apretá "Grabar" y hablá — vas a ver tu
+      transcripción y traducción en vivo acá abajo.
+    </p>
+  </header>
+
+  <div id="unsupported" class="banner banner--error" hidden>
+    Este navegador no soporta grabación de audio en el formato que usa este
+    proyecto (<code>audio/webm;codecs=opus</code>). Probá con Chrome, Edge o
+    Firefox.
+  </div>
+
+  <div id="permission-error" class="banner banner--error" hidden></div>
+
+  <main class="panel">
+    <div class="controls-row">
+      <label for="device-select">Micrófono</label>
+      <select id="device-select" disabled>
+        <option value="">Pidiendo permiso...</option>
+      </select>
+
+      <span id="status" class="status" data-state="idle">idle</span>
+
+      <button id="toggle-record" type="button" disabled>Grabar</button>
+    </div>
+
+    <div id="meter-row" class="meter-row" hidden>
+      <span class="meter-label">Nivel de audio</span>
+      <div class="level-meter" aria-hidden="true">
+        <div id="level-meter-fill" class="level-meter__fill"></div>
+      </div>
+      <span id="sent-info" class="sent-info">0 fragmentos enviados (0 KB)</span>
+    </div>
+
+    <div id="history" class="history" role="log" aria-live="polite">
+      <p class="placeholder">Todavía no dijiste nada.</p>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
